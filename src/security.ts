@@ -51,11 +51,13 @@ export class QueryValidator {
     //
     // Match on word boundaries rather than bare substrings. A plain
     // `includes()` rejects legitimate identifiers that merely contain a
-    // keyword -- RecordCreatedDate and IsDeleted (standard audit columns on
-    // most of our tables) tripped CREATE and DELETE, and resp_code tripped
-    // SP_. That made 47 of 74 tables effectively unqueryable, and pushed
-    // analysts into dropping `WHERE IsDeleted = 0` filters, which silently
-    // changes results.
+    // keyword -- created_date and is_deleted tripped CREATE and DELETE, and
+    // resp_code tripped SP_. Audit columns of that shape are common enough
+    // that this can make most of a schema unqueryable.
+    //
+    // The soft-delete case is the damaging one: when `WHERE is_deleted = 0`
+    // is refused, the natural workaround is to drop the filter, which
+    // silently changes results rather than failing visibly.
     //
     // SP_ and XP_ are prefixes, so they anchor only on the left. Real write
     // statements are still caught: see the tests in __tests__/security.test.ts.

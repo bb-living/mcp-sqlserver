@@ -1,15 +1,15 @@
 import { QueryValidator } from '../security.js';
 
-// Identifiers that contain a forbidden keyword as a substring. These are ordinary
-// column names -- RecordCreatedDate and IsDeleted are standard audit columns and
-// appear on most tables in the database this was written against.
+// Identifiers that contain a forbidden keyword as a substring. Audit columns of
+// this shape -- created/updated/deleted timestamps and soft-delete flags -- are
+// common, so a substring match can reject a large share of a schema.
 describe('keyword matching is word-boundary, not substring', () => {
   const legitimate = [
-    'SELECT RecordCreatedDate FROM bix.DimUnit',
-    'SELECT * FROM bix.DimGLAccount WHERE IsDeleted = 0',
-    'SELECT CreateDate, RenewCreateDate FROM bix.DimRenewal',
-    'SELECT mrrCreatedBy, CreatedByEmployee FROM bix.DimServiceRequest',
-    'SELECT osl_RenewCreatorId FROM bix.DimRenewal',
+    'SELECT created_date FROM dim_unit',
+    'SELECT * FROM dim_account WHERE is_deleted = 0',
+    'SELECT created_date, renewed_create_date FROM dim_renewal',
+    'SELECT created_by, created_by_employee FROM dim_service_request',
+    'SELECT creator_id FROM dim_renewal',
     'SELECT resp_code FROM t',
     'SELECT grantor, updated_at, deleted_flag, create_date FROM t',
     'SELECT alteration_id, dropped_count, merged_flag FROM t',
@@ -54,8 +54,7 @@ describe('comments and UNION are permitted', () => {
     'SELECT a FROM t1 UNION ALL SELECT b FROM t2',
     'SELECT 1 -- trailing comment',
     'SELECT /* inline note */ 1 FROM t',
-    '-- leading note is not allowed to change the statement type\nSELECT 1',
-  ].slice(0, 4); // a leading comment still fails the starts-with check, by design
+  ];
 
   it.each(permitted)('accepts %s', (query) => {
     expect(QueryValidator.validateQuery(query).isValid).toBe(true);
