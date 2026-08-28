@@ -47,9 +47,23 @@ export class QueryValidator {
       };
     }
 
-    // Check for forbidden keywords
+    // Check for forbidden keywords.
+    //
+    // Match on word boundaries rather than bare substrings. A plain
+    // `includes()` rejects legitimate identifiers that merely contain a
+    // keyword -- RecordCreatedDate and IsDeleted (standard audit columns on
+    // most of our tables) tripped CREATE and DELETE, and resp_code tripped
+    // SP_. That made 47 of 74 tables effectively unqueryable, and pushed
+    // analysts into dropping `WHERE IsDeleted = 0` filters, which silently
+    // changes results.
+    //
+    // SP_ and XP_ are prefixes, so they anchor only on the left. Real write
+    // statements are still caught: see the tests in __tests__/security.test.ts.
     for (const forbidden of this.FORBIDDEN_KEYWORDS) {
-      if (normalizedQuery.includes(forbidden)) {
+      const pattern = forbidden.endsWith('_')
+        ? new RegExp(`\\b${forbidden}`)
+        : new RegExp(`\\b${forbidden}\\b`);
+      if (pattern.test(normalizedQuery)) {
         return { 
           isValid: false, 
           error: `Forbidden keyword detected: ${forbidden}` 
@@ -69,11 +83,21 @@ export class QueryValidator {
   }
 
   private static containsSqlInjectionPatterns(query: string): boolean {
+    // Comment patterns (/--/ and /\/\*/) and the UNION pattern were removed here.
+    //
+    // All three rejected ordinary, correct SQL: commented queries, and UNION
+    // between two SELECTs. Neither was providing real protection. A comment
+    // cannot smuggle a keyword past the check above, because the keyword scan
+    // reads the entire query string, and SQL Server will not accept a comment
+    // inside a keyword (CRE/**/ATE parses as two tokens, not CREATE). UNION
+    // requires a SELECT on both sides and cannot write.
+    //
+    // What actually enforces read-only here is three other things: the query
+    // must start with an allowed statement, the keyword scan above, and -- the
+    // real guarantee -- database permissions, where the login is db_datareader
+    // with explicit DENY on INSERT/UPDATE/DELETE.
     const patterns = [
-      /--/,  // SQL comments
-      /\/\*/,  // Multi-line comments
       /;.*SELECT/,  // Statement injection
-      /UNION.*SELECT/,  // Union injection
       /'\s*OR\s*'.*'/,  // OR injection
       /'\s*AND\s*'.*'/,  // AND injection
     ];
