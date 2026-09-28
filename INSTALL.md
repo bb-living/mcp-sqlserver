@@ -12,25 +12,31 @@ This guide helps you install and configure the MCP SQL Server for use with Claud
 
 ### 1. Install the Package
 
+> **Install from this repository, not from npm.** The npm package `@bilims/mcp-sqlserver` is
+> built from the original `bilims/mcp-sqlserver` project that this repository descends from. It
+> supports SQL authentication only, with no Azure AD modes, and has none of this fork's
+> query-validator fixes. This fork keeps the same package name, so the npm command installs
+> the wrong code with no warning.
+
 Choose one of these methods:
 
 #### Global Installation (Recommended for most users)
 ```bash
-npm install -g @bilims/mcp-sqlserver
+npm install -g github:bb-living/mcp-sqlserver
 ```
 ✅ **Pros**: Available system-wide, easy to use
 ❌ **Cons**: Requires admin permissions on some systems
 
 #### Local Installation
 ```bash
-npm install @bilims/mcp-sqlserver
+npm install github:bb-living/mcp-sqlserver
 ```
 ✅ **Pros**: No admin permissions needed
 ❌ **Cons**: Must use `npx` to run
 
 #### Direct Run (No Installation)
 ```bash
-npx @bilims/mcp-sqlserver
+npx github:bb-living/mcp-sqlserver
 ```
 ✅ **Pros**: No installation required
 ❌ **Cons**: Downloads package each time
