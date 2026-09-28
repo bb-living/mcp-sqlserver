@@ -38,7 +38,7 @@ Three independent layers prevent any write operations:
 ### Step 1: Clone, install, and build
 
 ```bash
-git clone https://github.com/trainerroad/mcp-sqlserver.git ~/.claude/mcp-sqlserver
+git clone https://github.com/bb-living/mcp-sqlserver.git ~/.claude/mcp-sqlserver
 cd ~/.claude/mcp-sqlserver
 npm install
 npm run build
@@ -199,7 +199,7 @@ Clone into the user's Claude config directory:
 - **macOS/Linux:** `~/.claude/mcp-sqlserver`
 
 ```bash
-git clone https://github.com/trainerroad/mcp-sqlserver.git ~/.claude/mcp-sqlserver
+git clone https://github.com/bb-living/mcp-sqlserver.git ~/.claude/mcp-sqlserver
 ```
 
 If the directory already exists, run `git -C ~/.claude/mcp-sqlserver pull` instead.

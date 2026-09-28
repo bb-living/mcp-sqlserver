@@ -15,7 +15,7 @@ This document provides practical examples of how to use the MCP SQL Server tools
 ### 1. Installation and Basic Test
 ```bash
 # Install the package globally
-npm install -g @bilims/mcp-sqlserver
+npm install -g github:bb-living/mcp-sqlserver
 
 # Verify installation
 mcp-sqlserver --version  # Should show 2.0.0

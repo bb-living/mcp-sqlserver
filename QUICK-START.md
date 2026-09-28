@@ -4,8 +4,14 @@
 
 ### 1. Install
 ```bash
-npm install -g @bilims/mcp-sqlserver
+npm install -g github:bb-living/mcp-sqlserver
 ```
+
+> **Install from this repository, not from npm.** The npm package `@bilims/mcp-sqlserver` is
+> built from the original `bilims/mcp-sqlserver` project that this repository descends from. It
+> supports SQL authentication only, with no Azure AD modes, and has none of this fork's
+> query-validator fixes. This fork keeps the same package name, so the npm command installs
+> the wrong code with no warning.
 
 ### 2. Configure Claude Desktop
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
@@ -120,9 +126,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 - **Full Documentation**: [README.md](./README.md)
 - **Usage Examples**: [examples/usage-examples.md](./examples/usage-examples.md)
 - **Installation Guide**: [INSTALL.md](./INSTALL.md)
-- **GitHub**: https://github.com/bilims/mcp-sqlserver
-- **npm**: https://www.npmjs.com/package/@bilims/mcp-sqlserver
+- **GitHub**: https://github.com/bb-living/mcp-sqlserver
 
 ---
 
-**Need help?** Open an issue on [GitHub](https://github.com/bilims/mcp-sqlserver/issues)
+**Need help?** Open an issue on [GitHub](https://github.com/bb-living/mcp-sqlserver/issues)
