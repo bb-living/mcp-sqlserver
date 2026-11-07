@@ -44,7 +44,7 @@ The SharePoint mirror is `Strategy / Shared Documents / Sitetracker / Complete W
 
 | Table | Grain | Source | Trigger |
 |---|---|---|---|
-| `t_process_map_milestone` | one row per WBS milestone (58 rows) | the template embedded in the artifact | now; it is stable |
+| `t_process_map_milestone` | one row per WBS milestone (53 rows) | the template embedded in the artifact | now; it is stable |
 | `t_critical_dates` | community x milestone: forecast, actual, override, updated_at | export from the artifact store | after the team has used the artifact for one cycle and the field list stops changing |
 | `t_role_canonical` | canonical title, department, Bamboo title, Bamboo department | `Title & Dept Clean Up.xlsx` | after the Bamboo cleanup in `05-personnel-and-bamboo.md` |
 

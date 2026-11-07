@@ -49,7 +49,7 @@ Goals added since:
 | 29 Jul 2025 | Gene departs. Kurt takes over the process map effort; Frank works through the Sitetracker version. | Kurt, Frank |
 | Sep to Oct 2025 | Priorities reset after the RIF. Process map / Sitetracker rollout and pre-development process named as focus. Budget update cadence to follow map milestones; Level 1 / Level 2 schedule definitions still open. | Branden, Kurt, Frank |
 | 19 Dec 2025 | 2026 initiatives: revised process map draft ready for review. | Frank |
-| 5 Jan 2026 | **"Sitetracker - Process Map Update.xlsx"** sent to Branden and Kurt: 58 milestones in 9 stages (down from 111), roles realigned, prior version kept for reference. Plan: agree draft, hand to Sitetracker dev, retrain, then add sub-schedules. | Frank |
+| 5 Jan 2026 | **"Sitetracker - Process Map Update.xlsx"** sent to Branden and Kurt: 53 milestones in 9 stages (down from 111), roles realigned, prior version kept for reference. Plan: agree draft, hand to Sitetracker dev, retrain, then add sub-schedules. | Frank |
 | 13 Mar 2026 | AI Deployment Guide uses the process map as its backbone. | Jeff, Branden |
 | 14 Mar 2026 | Schedule sent to Sitetracker for build-out (the file the Critical Date Calendar is built from). | Frank |
 | 30 Mar 2026 | Planner vs Sitetracker: agreement that timelines live in one system; need a training plan and a go-to person other than Frank. Sitetracker scheduling demo planned. | Branden, Kurt, Frank |
@@ -64,7 +64,7 @@ Goals added since:
 |---|---|---|---|
 | Prior ST Process Map (2023) | 111 | Sitetracker template; many document-upload sub-steps; roles by 2023 titles | Superseded; still what is configured in Sitetracker until the rebuild lands |
 | BBL Process Flow Chart 6/19/25 (Gene) | about 140 tasks, 22 milestones, 14 sections | Full detail from deal identification to project closeout; departments, lead and support roles | The master detail list; source for Level 2 sub-schedules |
-| Sitetracker Process Map Update (Jan to Mar 2026, Frank) | 58 milestones, 9 stages | Level 1 critical dates only; predecessor and duration per milestone; one owner per milestone | Current Level 1; sent to Sitetracker; basis of the Critical Date Calendar |
+| Sitetracker Process Map Update (Jan to Mar 2026, Frank) | 53 milestones, 9 stages | Level 1 critical dates only; predecessor and duration per milestone; one owner per milestone | Current Level 1; sent to Sitetracker; basis of the Critical Date Calendar |
 
 ## What the map covers for asset management, and what it does not
 

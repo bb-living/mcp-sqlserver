@@ -123,13 +123,23 @@ details.howto summary { cursor: pointer; color: var(--fg); font-weight: 600; }
   <details class="howto">
     <summary>How the dates work</summary>
     <p>Each milestone has a predecessor and a duration in calendar days, copied from the Updated ST Process Map sheet sent to Sitetracker in March 2026. A milestone's <b>forecast</b> is its predecessor's actual date (or forecast, if not yet actual) plus the duration, unless someone has typed a forecast override. An <b>actual</b> date closes the milestone. Status is late when the forecast is in the past with no actual, and due soon when it falls inside the next 30 days. The Accepted LOI date anchors the whole chain, so a community with no dates at all shows template dates from 1/1/2026.</p>
+    <p>Two rules keep history from showing as late. The community <b>status</b> closes the stages behind it: Pre-development closes IC Memo and DD Period; Under construction closes everything through Land Closing; Lease-up closes through Land Development; Stabilized closes everything but the Stabilized &amp; Disposition stage; Sold closes all. Those show as "Complete (by status)". Separately, a milestone with no actual that sits before a later milestone that does have an actual shows as <b>no record</b> rather than late.</p>
+    <p><b>Where the seeded dates came from.</b> The actual dates loaded on 2026-11-07 are the per-community columns of <i>ST Process Map - Historical Communities.xlsx</i> (Strategy site, Sitetracker / Complete Workflow Project), which were keyed by hand from Sitetracker and deal files. They cover acquisition and entitlement milestones only. Nothing was loaded from Microsoft Planner; Planner is not reachable from the Claude connector, so construction and opening dates must be entered here or imported from a Planner export.</p>
   </details>
 </div>
 <div id="toast" class="toast" hidden></div>
 
 <script>
 // ---------- Process map template (Updated ST Process Map, 2026-03) ----------
-const STAGES = ["IC Memo","DD Period","Entitlement Period","Pre-Development - Construction","Loan Closing","Land Closing","Land Development","Vertical Construction","Leasing"];
+const STAGES = ["IC Memo","DD Period","Entitlement Period","Pre-Development - Construction","Loan Closing","Land Closing","Land Development","Vertical Construction","Leasing","Stabilized & Disposition"];
+const POST_STAB_STAGE = 10; // milestones in this stage stay open after stabilization
+// Community lifecycle status. Stabilized and Sold auto-complete every pre-stabilization milestone.
+const STATUSES = [
+  ["pipeline","Pipeline"],["pre-development","Pre-development"],["under-construction","Under construction"],
+  ["lease-up","Lease-up"],["stabilized","Stabilized"],["sold","Sold / exited"],
+];
+const STATUS_LABEL = Object.fromEntries(STATUSES);
+const STATUS_ORDER = Object.fromEntries(STATUSES.map((s,i) => [s[0], i]));
 // [wbs, name, predecessor, duration (calendar days), owner]
 const MS = [
 ["1.1","Accepted LOI","",0,"Acquisitions Manager"],
@@ -185,7 +195,11 @@ const MS = [
 ["9.3","Property Manager Hired","8.3",120,"VP Asset Management"],
 ["9.4","On-Site Leasing Start Date","8.3",210,"VP Asset Management"],
 ["9.5","Lease Stabilization Date","8.9",90,"VP Asset Management"],
-].map(r => ({ wbs:r[0], name:r[1], pred:r[2], dur:r[3], owner:r[4], stage: STAGES[parseInt(r[0],10)-1] }));
+// Stage 10 is taken from the Master Schedule Milestones sheet (June 2026), items 71 to 73. Durations are placeholders to be set by Finance and AM.
+["10.1","Stabilized NOI Achieved vs. Underwriting","9.5",365,"VP Asset Management"],
+["10.2","Disposition / Recap Decision","10.1",180,"VP of Finance"],
+["10.3","Capital Event / Sale Close","10.2",180,"VP of Finance"],
+].map(r => { const stageNo = parseInt(r[0],10); return { wbs:r[0], name:r[1], pred:r[2], dur:r[3], owner:r[4], stage: STAGES[stageNo-1], stageNo, seq: parseInt(r[0].split(".")[1],10), key: stageNo*100 + parseInt(r[0].split(".")[1],10) }; });
 const BY_WBS = Object.fromEntries(MS.map(m => [m.wbs, m]));
 const TEMPLATE_ANCHOR = "2026-01-01";
 const SOON_DAYS = 30;
@@ -200,28 +214,50 @@ const fmt = s => { if (!s) return ""; const [y,m,d] = s.split("-"); return `${+m
 const daysBetween = (a, b) => Math.round((parse(b) - parse(a)) / DAY);
 
 // Compute every milestone's forecast for one community. dates: { wbs: {actual, forecast} }
-function compute(dates) {
+// Status rules, in order:
+//   done    - an actual date is entered, or the community status implies the stage is behind it (STATUS_FLOOR)
+//   passed  - no actual, but a later milestone has an actual: the project moved past it with no date on record
+//   late    - forecast is in the past
+//   soon    - forecast within SOON_DAYS
+//   ok      - otherwise
+// Forecast dates: predecessor date plus duration. When nothing upstream has a real date, the chain is floored at the
+// latest actual recorded before the milestone, so history is not forecast from the 2026 template anchor.
+const STATUS_FLOOR = { "pipeline": 0, "pre-development": 2, "under-construction": 6, "lease-up": 7, "stabilized": 9, "sold": 10 };
+function compute(dates, commStatus) {
   const out = {};
+  const floorStage = STATUS_FLOOR[commStatus] || 0;
+  let maxActualKey = -1;
+  for (const m of MS) { const d = (dates && dates[m.wbs]) || {}; if (d.actual && m.key > maxActualKey) maxActualKey = m.key; }
+  let latestActual = null;
   for (const m of MS) {
     const d = (dates && dates[m.wbs]) || {};
-    let base;
-    if (d.actual) base = d.actual;
-    else if (d.forecast) base = d.forecast;
-    else if (!m.pred) base = TEMPLATE_ANCHOR;
-    else base = addDays(out[m.pred].date, m.dur);
-    let status;
+    let base, chainAnchored;
+    if (d.actual) { base = d.actual; chainAnchored = true; }
+    else if (d.forecast) { base = d.forecast; chainAnchored = true; }
+    else if (!m.pred) { base = TEMPLATE_ANCHOR; chainAnchored = false; }
+    else {
+      const p = out[m.pred];
+      chainAnchored = p.chainAnchored;
+      const from = (!chainAnchored && latestActual && latestActual > p.date) ? latestActual : p.date;
+      base = addDays(from, m.dur);
+    }
+    let status, inferred = false;
     if (d.actual) status = "done";
+    else if (m.stageNo <= floorStage) { status = "done"; inferred = true; }
+    else if (m.key < maxActualKey) status = "passed";
     else if (base < today) status = "late";
     else if (daysBetween(today, base) <= SOON_DAYS) status = "soon";
     else status = "ok";
-    out[m.wbs] = { date: base, status, actual: d.actual || "", override: d.forecast || "", anchored: !!(d.actual || d.forecast) };
+    out[m.wbs] = { date: base, status, inferred, chainAnchored, actual: d.actual || "", override: d.forecast || "", anchored: !!(d.actual || d.forecast) };
+    if (d.actual && (!latestActual || d.actual > latestActual)) latestActual = d.actual;
   }
   return out;
 }
+const isClosed = s => s === "done" || s === "passed";
 function stageSummary(calc) {
   return STAGES.map(st => {
     const items = MS.filter(m => m.stage === st).map(m => calc[m.wbs]);
-    const open = items.filter(i => i.status !== "done");
+    const open = items.filter(i => !isClosed(i.status));
     const late = open.filter(i => i.status === "late").length;
     const soon = open.filter(i => i.status === "soon").length;
     const next = open.slice().sort((a,b) => a.date < b.date ? -1 : 1)[0];
@@ -238,7 +274,9 @@ let view = "portfolio";
 let loading = true, loadNote = "";
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const chip = (status, text) => `<span class="chip ${status}">${text || {done:"Complete",late:"Late",soon:"Due soon",ok:"On track",na:"n/a"}[status]}</span>`;
+const chip = (status, text) => `<span class="chip ${status === "passed" ? "na" : status}">${text || {done:"Complete",late:"Late",soon:"Due soon",ok:"On track",na:"n/a",passed:"No record"}[status]}</span>`;
+const statusChip = s => s ? `<span class="chip ${s === "stabilized" || s === "sold" ? "done" : s === "lease-up" || s === "under-construction" ? "ok" : "na"}">${STATUS_LABEL[s] || s}</span>` : `<span class="chip na">Status not set</span>`;
+const sortComms = list => list.slice().sort((a,b) => ((STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99)) || a.name.localeCompare(b.name));
 
 // ---------- rendering ----------
 function render() {
@@ -260,9 +298,9 @@ function loadBanner() {
 }
 function renderPortfolio() {
   const el = $("#view-portfolio");
-  const calcs = communities.map(c => ({ c, calc: compute(c.dates) }));
+  const calcs = communities.map(c => ({ c, calc: compute(c.dates, c.status) }));
   let late = 0, soon = 0, open = 0;
-  for (const {calc} of calcs) for (const w in calc) { const s = calc[w].status; if (s !== "done") open++; if (s === "late") late++; if (s === "soon") soon++; }
+  for (const {calc} of calcs) for (const w in calc) { const s = calc[w].status; if (!isClosed(s)) open++; if (s === "late") late++; if (s === "soon") soon++; }
   let html = loadBanner();
   html += `<div class="kpis">
     <div class="kpi"><div class="n">${communities.length}</div><div class="l">communities tracked</div></div>
@@ -275,59 +313,63 @@ function renderPortfolio() {
     el.innerHTML = html; return;
   }
   html += `<div class="tablewrap"><table><thead><tr><th>Community</th>${STAGES.map(s => `<th>${esc(s.replace(" - Construction",""))}</th>`).join("")}</tr></thead><tbody>`;
-  for (const {c, calc} of calcs.sort((a,b) => a.c.name.localeCompare(b.c.name))) {
+  for (const {c, calc} of calcs.sort((a,b) => ((STATUS_ORDER[a.c.status] ?? 99) - (STATUS_ORDER[b.c.status] ?? 99)) || a.c.name.localeCompare(b.c.name))) {
     const sum = stageSummary(calc);
-    html += `<tr><td class="name"><a href="#" data-open="${esc(c.id)}" style="color:inherit">${esc(c.name)}</a><div class="owner">${esc([c.market, c.fund].filter(Boolean).join(" · "))}</div></td>`;
+    html += `<tr><td class="name"><a href="#" data-open="${esc(c.id)}" style="color:inherit">${esc(c.name)}</a><div class="owner" style="margin-top:3px">${statusChip(c.status)} ${esc([c.market, c.fund].filter(Boolean).join(" · "))}</div></td>`;
     for (const s of sum) {
       html += `<td>${chip(s.status, s.status === "done" ? "Complete" : `${s.done}/${s.total}`)}${s.next ? `<div class="mono" style="margin-top:4px">${fmt(s.next)}</div>` : ""}</td>`;
     }
     html += `</tr>`;
   }
   html += `</tbody></table></div>
-  <div class="legend">${chip("ok","On track")} ${chip("soon","Due within 30 days")} ${chip("late","Past forecast, no actual")} ${chip("done","Complete")} <span class="owner">Cell shows milestones complete per stage and the next open date.</span></div>`;
+  <div class="legend">${chip("ok","On track")} ${chip("soon","Due within 30 days")} ${chip("late","Past forecast, no actual")} ${chip("done","Complete")} ${chip("passed","No record")} <span class="owner">Cell shows milestones closed per stage and the next open date. Community status closes the stages behind it (see "How the dates work"); "no record" marks a milestone the project passed without a date.</span></div>`;
   el.innerHTML = html;
   el.querySelectorAll("[data-open]").forEach(a => a.addEventListener("click", e => { e.preventDefault(); selectedId = a.dataset.open; view = "community"; render(); }));
 }
 function renderCommunity() {
   const el = $("#view-community");
-  const sorted = communities.slice().sort((a,b) => a.name.localeCompare(b.name));
+  const sorted = sortComms(communities);
   if (!selectedId && sorted.length) selectedId = sorted[0].id;
   const c = communities.find(x => x.id === selectedId);
+  const dis = canWrite && db ? "" : "disabled";
+  const statusOptions = sel => STATUSES.map(([v,l]) => `<option value="${v}" ${v === sel ? "selected" : ""}>${l}</option>`).join("");
   let rail = `<div class="rail">` + sorted.map(x => {
-    const s = stageSummary(compute(x.dates)); const late = s.reduce((n,q)=>n+q.late,0);
-    return `<button data-sel="${esc(x.id)}" aria-current="${x.id === selectedId}"><span>${esc(x.name)}</span>${late ? `<span class="chip late">${late} late</span>` : `<span class="m">${esc(x.market||"")}</span>`}</button>`;
+    const s = stageSummary(compute(x.dates, x.status)); const late = s.reduce((n,q)=>n+q.late,0);
+    return `<button data-sel="${esc(x.id)}" aria-current="${x.id === selectedId}"><span>${esc(x.name)}</span>${late ? `<span class="chip late">${late} late</span>` : `<span class="m">${esc(STATUS_LABEL[x.status] || x.market || "")}</span>`}</button>`;
   }).join("") +
   `<div class="add"><form class="add-form" id="add-form">
-    <label>New community <input id="add-name" name="name" required placeholder="Community name" ${canWrite && db ? "" : "disabled"}></label>
-    <label>Market <input id="add-market" name="market" placeholder="e.g. Phoenix, AZ" ${canWrite && db ? "" : "disabled"}></label>
-    <label>Fund / venture <input id="add-fund" name="fund" placeholder="e.g. Fund II" ${canWrite && db ? "" : "disabled"}></label>
-    <label>Accepted LOI date <input id="add-loi" name="loi" type="date" ${canWrite && db ? "" : "disabled"}></label>
-    <button class="btn" type="submit" ${canWrite && db ? "" : "disabled"}>Add community</button>
+    <label>New community <input id="add-name" name="name" required placeholder="Community name" ${dis}></label>
+    <label>Market <input id="add-market" name="market" placeholder="e.g. Phoenix, AZ" ${dis}></label>
+    <label>Fund / venture <input id="add-fund" name="fund" placeholder="e.g. Fund II" ${dis}></label>
+    <label>Status <select id="add-status" name="status" ${dis}><option value="">Not set</option>${statusOptions("")}</select></label>
+    <label>Accepted LOI date <input id="add-loi" name="loi" type="date" ${dis}></label>
+    <button class="btn" type="submit" ${dis}>Add community</button>
   </form></div></div>`;
   let body;
   if (!c) {
     body = `<div class="tablewrap"><div class="empty"><h3>Select or add a community</h3>Dates forecast from Accepted LOI using the process map durations.</div></div>`;
   } else {
-    const calc = compute(c.dates);
+    const calc = compute(c.dates, c.status);
     const sum = stageSummary(calc);
     const late = sum.reduce((n,s)=>n+s.late,0), soon = sum.reduce((n,s)=>n+s.soon,0);
     const anchor = calc["1.1"];
+    const closedAll = (STATUS_FLOOR[c.status] || 0) >= 9;
     body = `<div class="commhead"><div><h2>${esc(c.name)}</h2>
-      <div class="meta"><span>Market <b>${esc(c.market||"—")}</b></span><span>Fund <b>${esc(c.fund||"—")}</b></span><span>Accepted LOI <b class="mono">${anchor.anchored ? fmt(anchor.date) : "not set (template)"}</b></span><span>Stabilization forecast <b class="mono">${fmt(calc["9.5"].date)}</b></span></div></div>
-      <div>${late ? chip("late", late+" late") : ""} ${soon ? chip("soon", soon+" due soon") : ""} ${!late && !soon ? chip("ok") : ""}</div></div>`;
+      <div class="meta"><span>Market <b>${esc(c.market||"\u2014")}</b></span><span>Fund <b>${esc(c.fund||"\u2014")}</b></span><span>Accepted LOI <b class="mono">${anchor.anchored ? fmt(anchor.date) : "not set (template)"}</b></span><span>Stabilization ${calc["9.5"].actual ? "actual" : "forecast"} <b class="mono">${fmt(calc["9.5"].date)}</b></span></div></div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label style="display:flex;gap:6px;align-items:center">Status <select id="comm-status" ${dis} style="width:auto"><option value="">Not set</option>${statusOptions(c.status || "")}</select></label>${late ? chip("late", late+" late") : ""} ${soon ? chip("soon", soon+" due soon") : ""} ${!late && !soon ? chip("ok", closedAll ? "Nothing open" : "On track") : ""}</div></div>`;
+    if (closedAll) body += `<div class="note">${esc(STATUS_LABEL[c.status])}: every pre-stabilization milestone is treated as complete, so nothing here can show as late. Actual dates can still be entered for the record. ${c.status === "stabilized" ? "The Stabilized &amp; Disposition stage stays open." : ""}</div>`;
     body += `<div class="tablewrap"><table><thead><tr><th>WBS</th><th>Milestone</th><th>Owner</th><th>Pred.</th><th>Days</th><th>Forecast</th><th>Actual</th><th>Status</th></tr></thead><tbody>`;
     let lastStage = "";
     for (const m of MS) {
-      if (m.stage !== lastStage) { lastStage = m.stage; const s = sum.find(q => q.stage === m.stage); body += `<tr class="stage"><td colspan="5">${esc(m.stage)}</td><td colspan="3">${chip(s.status, s.status === "done" ? "Complete" : `${s.done}/${s.total} complete`)}</td></tr>`; }
+      if (m.stage !== lastStage) { lastStage = m.stage; const s = sum.find(q => q.stage === m.stage); body += `<tr class="stage"><td colspan="5">${esc(m.stage)}</td><td colspan="3">${chip(s.status, s.status === "done" ? "Complete" : `${s.done}/${s.total} closed`)}</td></tr>`; }
       const r = calc[m.wbs];
-      const dis = canWrite && db ? "" : "disabled";
       body += `<tr><td class="mono">${m.wbs}</td><td class="name">${esc(m.name)}</td><td class="owner">${esc(m.owner)}</td><td class="mono">${m.pred || "—"}</td><td class="mono">${m.pred ? m.dur : "anchor"}</td>
         <td><input type="date" id="f-${m.wbs.replace(".","-")}" data-kind="forecast" data-wbs="${m.wbs}" value="${r.override || r.date}" title="${r.override ? "Forecast override" : "Computed forecast; type to override"}" ${dis} style="${r.override ? "border-color:var(--soon)" : "color:var(--muted)"}"></td>
         <td><input type="date" id="a-${m.wbs.replace(".","-")}" data-kind="actual" data-wbs="${m.wbs}" value="${r.actual}" ${dis}></td>
-        <td>${chip(r.status)}</td></tr>`;
+        <td>${chip(r.status, r.inferred ? "Complete (by status)" : undefined)}</td></tr>`;
     }
     body += `</tbody></table></div>
-    <div class="legend"><span class="owner">Grey forecast = computed from predecessor. Amber border = typed override (clear the field to return to computed). Entering an actual closes the milestone and moves every downstream forecast.</span></div>
+    <div class="legend"><span class="owner">Grey forecast = computed from predecessor. Amber border = typed override (clear the field to return to computed). Entering an actual closes the milestone and moves every downstream forecast. "No record" means a later milestone has an actual, so this one was passed without a date; it is not counted as late.</span></div>
     <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost" id="del-comm" ${canWrite && db ? "" : "disabled"}>Remove this community</button><span id="del-confirm" hidden style="align-self:center" class="owner">Click again to confirm removal.</span></div>`;
   }
   el.innerHTML = loadBanner() + `<div class="grid"><aside>${rail}</aside><div style="min-width:0">${body}</div></div>`;
@@ -338,12 +380,18 @@ function renderCommunity() {
     const name = $("#add-name").value.trim(); if (!name || !db) return;
     const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || ("c-" + Date.now());
     const loi = $("#add-loi").value;
-    const doc = { name, market: $("#add-market").value.trim(), fund: $("#add-fund").value.trim(), notes: "", dates: loi ? { "1.1": { actual: loi } } : {}, createdAt: today };
+    const doc = { name, market: $("#add-market").value.trim(), fund: $("#add-fund").value.trim(), status: $("#add-status").value || "", notes: "", dates: loi ? { "1.1": { actual: loi } } : {}, createdAt: today };
     try { await db.collection("communities").doc(id).set(doc); selectedId = id; toast("Community added"); form.reset(); }
     catch (err) { writeFailed(err); }
   });
   if (c) {
     el.querySelectorAll("input[data-kind]").forEach(inp => inp.addEventListener("change", () => saveDate(c, inp.dataset.wbs, inp.dataset.kind, inp.value)));
+    $("#comm-status").addEventListener("change", e => {
+      if (!db) return;
+      const status = e.target.value; if ((c.status || "") === status) return;
+      c.status = status; render();
+      saving = saving.then(() => db.collection("communities").doc(c.id).update({ status, updatedAt: today })).then(() => toast("Status saved")).catch(writeFailed);
+    });
     const del = $("#del-comm"); let armed = false;
     del.addEventListener("click", async () => {
       if (!armed) { armed = true; $("#del-confirm").hidden = false; return; }
@@ -358,7 +406,7 @@ function saveDate(c, wbs, kind, value) {
   const cur = dates[wbs] || {};
   if (kind === "forecast") {
     // a typed forecast equal to the computed one is not an override
-    const computed = compute(Object.assign({}, dates, { [wbs]: { actual: cur.actual } }))[wbs].date;
+    const computed = compute(Object.assign({}, dates, { [wbs]: { actual: cur.actual } }), c.status)[wbs].date;
     if (!value || value === computed) delete cur.forecast; else cur.forecast = value;
   } else { if (!value) delete cur.actual; else cur.actual = value; }
   if (Object.keys(cur).length) dates[wbs] = cur; else delete dates[wbs];
@@ -374,7 +422,7 @@ function writeFailed(err) {
 function renderUpcoming() {
   const el = $("#view-upcoming");
   const rows = [];
-  for (const c of communities) { const calc = compute(c.dates); for (const m of MS) { const r = calc[m.wbs]; if (r.status === "done") continue; if (r.status === "late" || daysBetween(today, r.date) <= 90) rows.push({ c, m, r }); } }
+  for (const c of communities) { const calc = compute(c.dates, c.status); for (const m of MS) { const r = calc[m.wbs]; if (isClosed(r.status)) continue; if (r.status === "late" || daysBetween(today, r.date) <= 90) rows.push({ c, m, r }); } }
   rows.sort((a,b) => a.r.date < b.r.date ? -1 : a.r.date > b.r.date ? 1 : a.c.name.localeCompare(b.c.name));
   let html = loadBanner();
   if (!rows.length) { html += `<div class="tablewrap"><div class="empty"><h3>Nothing due in the next 90 days</h3>${communities.length ? "Every open milestone is further out." : "Add a community to see its critical dates here."}</div></div>`; el.innerHTML = html; return; }
@@ -388,7 +436,7 @@ function renderUpcoming() {
 function renderTemplate() {
   const el = $("#view-template");
   const calc = compute({});
-  let html = `<div class="note">The Level 1 critical dates as submitted to Sitetracker (Updated ST Process Map, 2026-03). Template dates assume Accepted LOI on 1/1/2026. Durations are calendar days after the predecessor. Edit the list in the page source and republish; community data is unaffected.</div>
+  let html = `<div class="note">Stages 1 to 9 are the Level 1 critical dates as submitted to Sitetracker (Updated ST Process Map, 2026-03). Stage 10 adds the three post-stabilization milestones from the Master Schedule Milestones sheet (June 2026) so stabilized communities keep an open disposition line; its durations are placeholders. Template dates assume Accepted LOI on 1/1/2026. Durations are calendar days after the predecessor. Edit the list in the page source and republish; community data is unaffected.</div>
   <div class="tablewrap"><table><thead><tr><th>WBS</th><th>Milestone</th><th>Predecessor</th><th>Days</th><th>Owner</th><th>Template date</th></tr></thead><tbody>`;
   let lastStage = "";
   for (const m of MS) {
