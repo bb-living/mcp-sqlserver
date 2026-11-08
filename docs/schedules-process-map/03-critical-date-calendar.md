@@ -11,7 +11,7 @@
 - Status per milestone: complete, late (forecast in the past with no actual), due soon (within 30 days), on track, and "no record" (no actual, but a later milestone has one, so the project passed it without a date; not counted as late).
 - Each community carries a lifecycle status: Pipeline, Pre-development, Under construction, Lease-up, Stabilized, Sold / exited. The status closes the stages behind it, shown as "Complete (by status)": Pre-development closes IC Memo and DD Period; Under construction closes everything through Land Closing; Lease-up closes through Land Development; Stabilized closes everything except the Stabilized & Disposition stage; Sold closes all. This is how overdue items were cleared for stabilized communities without inventing dates.
 - Four views: Portfolio (community by stage), Community (editable dates), Next 90 days (the weekly deep-dive list), Template (the Level 1 map itself).
-- Community dates live in the artifact's shared database (32 communities as of 2026-11-08). Anyone the artifact is shared with at Contributor or above can add communities and enter dates; Viewers read only. Republishing the page never touches the data.
+- Community dates live in the artifact's shared database (33 communities as of 2026-11-08). Anyone the artifact is shared with at Contributor or above can add communities and enter dates; Viewers read only. Republishing the page never touches the data.
 
 ## Where the dates came from
 
@@ -48,13 +48,16 @@ Branden's 4 Nov 2026 note on project visibility proposes Sitetracker as the mile
 communities/<id>
   name        string
   market      string
-  fund        string
+  fund        "B2R I" | "B2R II" | "Blackbird" | "Legacy" | "TAC+" | "Fee Build" | "Historical" | "" (unassigned)
+  state       "AZ" | "CO" | "FL" | "ID" | "NC" | "TX" | ""
   status      "pipeline" | "pre-development" | "under-construction" | "lease-up" | "stabilized" | "sold" | ""
   notes       string
   dates       { "<wbs>": { actual?: "YYYY-MM-DD", forecast?: "YYYY-MM-DD" } }
   createdAt   "YYYY-MM-DD"
   updatedAt   "YYYY-MM-DD"
 ```
+
+Fund and state follow the warehouse. `bix.Community_Lookup` in BBLivingDW (manually maintained; 20 rows at the 2026-05-19 snapshot) carries one `Fund` and one `State` per community, and the Power BI model filters on them. Fund values there are B2R I (9 communities), B2R II (Lakewood Ranch II, Seven Shores), Blackbird (Civic Square, Harvest, Light Farms, The Oaks, Union Park), Legacy (Val Vista), TAC+ (Desert Ridge) and Historical (the divested Las Casas at Windrose and Murphy Creek, kept for reporting continuity). Pipeline deals live in `bix.PipelineCommunity`, which has no fund column, so communities not yet in the warehouse are B2R II where Finance or the Sept 2026 Ops pack says so (Arvada, Bear Creek, Cavasson, Hillsong, Logan Ranch, Shalimar, Sweetwater II) and otherwise unassigned. Fee Build is added for third-party builds such as Skyline. The calendar's fund and state filters (Portfolio, Community and Next 90 days views; remembered per device) use these values, and both fields are editable on the community header. Two corrections came out of the alignment on 2026-11-08: the historical sheet's "Windrose" column is Las Casas at Windrose (divested, Historical), not Val Vista, so that row was renamed and set to Sold; Val Vista (Legacy, Gilbert) was added as its own row with no dates. The calendar holds 33 communities.
 
 The template (wbs, name, stage, predecessor, duration, owner role) is in the page source. Changing the map means editing that list and republishing. When the team wants the template editable in place, move it to a `template/milestones` document in the same store.
 
