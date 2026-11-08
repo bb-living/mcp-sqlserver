@@ -100,6 +100,8 @@ tr.stage td { background: var(--panel) !important; font-weight: 700; font-size: 
 .gantt .bar { fill: var(--teal-l); stroke: var(--line); }
 .gantt .bar.late { fill: var(--bad-l); } .gantt .bar.soon { fill: var(--gold-l); } .gantt .bar.done { fill: var(--teal-l); }
 .gantt .ms { stroke: var(--panel); stroke-width: 1; }
+.gantt .ms.bl { fill: none; stroke: var(--muted); stroke-width: 1.4; stroke-dasharray: 2 1.5; }
+.var-late { color: var(--bad); font-weight: 600; } .var-early { color: var(--ok); } .var-zero { color: var(--muted); }
 .gantt .ms.done { fill: var(--teal-ink); } .gantt .ms.late { fill: var(--bad); } .gantt .ms.soon { fill: var(--gold-ink); } .gantt .ms.ok { fill: var(--ok); } .gantt .ms.na { fill: var(--ph); }
 .gantt .today { stroke: var(--bb-char); stroke-width: 1.5; stroke-dasharray: 4 3; }
 .gantt .tl { font-size: 11px; fill: var(--muted); }
@@ -166,6 +168,7 @@ details.howto b, details.howto i { color: var(--fg); }
   <details class="howto">
     <summary>How the dates work</summary>
     <p>Each milestone has a predecessor and a duration in calendar days, copied from the Updated ST Process Map sheet sent to Sitetracker in March 2026. A milestone's <b>forecast</b> is its predecessor's actual date (or forecast, if not yet actual) plus the duration, unless someone has typed a forecast override. An <b>actual</b> date closes the milestone. Status is late when the forecast is in the past with no actual, and due soon when it falls inside the next 30 days. The Accepted LOI date anchors the whole chain, so a community with no dates at all shows template dates from 1/1/2026.</p>
+    <p><b>Baseline, forecast, actual.</b> Each milestone can carry three dates. The <b>baseline</b> is the DD Exit schedule: the dates in the Original Budget package (the last DD Exit or Final Investment memo and model sent to TPG before the deal went hard), as kept in BBL-DataSource under inputs / bbl / DD Exit. It is set once and never moved. The forecast and actual move with the project, and <b>Var.</b> is the days the current date sits after the baseline. Communities past DD exit with no baseline show on the Review tab; deals still in due diligence carry their IC-memo schedule as a provisional baseline, to be replaced at DD exit. Going forward, the full Level 1 calendar should be populated before the DD Exit memo is issued so that every milestone has a baseline.</p>
     <p><b>Fund, owner and state.</b> Fund is the venture that developed the community; Owner is who holds it today. Blackbird communities and the two divested ones were developed under B2R I, so their development dates filter with B2R I and only the Stabilized &amp; Disposition stage belongs to the owner. Values follow the warehouse: BBLivingDW's community lookup carries one fund (B2R I, B2R II, Blackbird, Legacy, TAC+, Historical for divested communities) and one state per community; Fee Build is added for third-party builds. The fund and state filters above the Portfolio, Community and Next 90 days views are remembered on this device. Pipeline deals that have no fund yet show as Unassigned.</p>
     <p>Two rules keep history from showing as late. The community <b>status</b> closes the stages behind it: Pre-development closes IC Memo and DD Period; Under construction closes everything through Land Closing; Lease-up closes through Land Development; Stabilized closes everything but the Stabilized &amp; Disposition stage; Sold closes all. Those show as "Complete (by status)". Separately, a milestone with no actual that sits before a later milestone that does have an actual shows as <b>no record</b> rather than late.</p>
     <p><b>Where the dates came from.</b> Acquisition and entitlement actuals (loaded 2026-11-07) are the per-community columns of <i>ST Process Map - Historical Communities.xlsx</i> (Strategy site, Sitetracker / Complete Workflow Project). Land, construction and opening dates (loaded 2026-11-08) are the construction team's Planner task grids, exported weekly as <i>&lt;community&gt; Pre-Construction Schedule_&lt;date&gt;.pdf</i> in the Construction site (Reporting Documents / Claude Project Folder / Task Grid Schedules); the 10/29/2026 set was used, past dates as actuals and future dates as forecasts. Vertical start, first and last home delivery and amenity dates for completed and leasing communities (also loaded 2026-11-08) come from the PM Reports staged in BBL-DataSource (inputs / cns / PM Report): first home Start Date, first and last Hand Off / Rent Ready, and the amenity row. Each community's notes say which file each date came from.</p>
@@ -269,7 +272,9 @@ const fmt = s => { if (!s) return ""; const [y,m,d] = s.split("-"); return `${+m
 document.getElementById("asof-date").textContent = fmt(today);
 const daysBetween = (a, b) => Math.round((parse(b) - parse(a)) / DAY);
 
-// Compute every milestone's forecast for one community. dates: { wbs: {actual, forecast} }
+// Compute every milestone's forecast for one community. dates: { wbs: {actual, forecast, baseline} }
+// baseline = the DD Exit (Original Budget) date; never moved by the chain. variance = days the current date (actual or
+// forecast) sits after the baseline; positive is behind plan.
 // Status rules, in order:
 //   done    - an actual date is entered, or the community status implies the stage is behind it (STATUS_FLOOR)
 //   passed  - no actual, but a later milestone has an actual: the project moved past it with no date on record
@@ -304,7 +309,7 @@ function compute(dates, commStatus) {
     else if (base < today) status = "late";
     else if (daysBetween(today, base) <= SOON_DAYS) status = "soon";
     else status = "ok";
-    out[m.wbs] = { date: base, status, inferred, chainAnchored, actual: d.actual || "", override: d.forecast || "", anchored: !!(d.actual || d.forecast) };
+    out[m.wbs] = { date: base, status, inferred, chainAnchored, actual: d.actual || "", override: d.forecast || "", anchored: !!(d.actual || d.forecast), baseline: d.baseline || "", variance: d.baseline ? daysBetween(d.baseline, base) : null };
     if (d.actual && (!latestActual || d.actual > latestActual)) latestActual = d.actual;
   }
   return out;
@@ -324,7 +329,7 @@ function stageSummary(calc) {
 
 // ---------- state ----------
 let db = null, userApi = null, canWrite = true;
-let communities = [];           // [{id, name, market, fund, ownership, state, status, notes, dates, review, roleOverrides}]
+let communities = [];           // [{id, name, market, fund, ownership, state, status, notes, dates, review, roleOverrides, baselineSource}]
 let selectedId = null;
 let view = "portfolio";
 let loading = true, loadNote = "";
@@ -357,6 +362,11 @@ function wireFilters(el) {
 }
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const varCell = r => r.variance === null || r.variance === undefined ? "" : r.variance > 0 ? `<span class="var-late">+${r.variance}d</span>` : r.variance < 0 ? `<span class="var-early">${r.variance}d</span>` : `<span class="var-zero">0d</span>`;
+// Milestones that a DD-exit baseline is expected to cover once a deal has exited DD.
+const BASELINE_KEYS = ["6.3","7.4","8.4","8.8","9.5"];
+const hasBaseline = c => BASELINE_KEYS.some(w => c.dates && c.dates[w] && c.dates[w].baseline);
+const pastDDExit = (c, calc) => (STATUS_FLOOR[c.status] || 0) >= 6 || !!(calc["2.8"].actual || calc["2.7"].actual || calc["6.3"].actual);
 const chip = (status, text) => `<span class="chip ${status === "passed" ? "na" : status}">${text || {done:"Complete",late:"Late",soon:"Due soon",ok:"On track",na:"n/a",passed:"No record"}[status]}</span>`;
 const statusChip = s => s ? `<span class="chip ${({stabilized:"p-stab",sold:"p-lead","lease-up":"p-lease","under-construction":"p-con"})[s] || "p-pre"}">${STATUS_LABEL[s] || s}</span>` : `<span class="chip na">Status not set</span>`;
 const sortComms = list => list.slice().sort((a,b) => ((STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99)) || a.name.localeCompare(b.name));
@@ -386,12 +396,14 @@ function renderPortfolio() {
   const calcs = shown.map(c => ({ c, calc: compute(c.dates, c.status) }));
   let late = 0, soon = 0, open = 0;
   for (const {calc} of calcs) for (const w in calc) { const s = calc[w].status; if (!isClosed(s)) open++; if (s === "late") late++; if (s === "soon") soon++; }
+  const needBl = calcs.filter(({c, calc}) => pastDDExit(c, calc)).length, withBl = calcs.filter(({c, calc}) => pastDDExit(c, calc) && hasBaseline(c)).length;
   let html = loadBanner() + filterBar();
-  html += `<div class="kpis">
+  html += `<div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr))">
     <div class="kpi"><div class="n">${shown.length}</div><div class="l">${shown.length === communities.length ? "communities tracked" : "communities shown"}</div></div>
     <div class="kpi late"><div class="n">${late}</div><div class="l">milestones past forecast</div></div>
     <div class="kpi soon"><div class="n">${soon}</div><div class="l">due in the next ${SOON_DAYS} days</div></div>
     <div class="kpi ok"><div class="n">${open}</div><div class="l">open milestones</div></div>
+    <div class="kpi"><div class="n">${withBl}<span style="font-size:14px;color:var(--muted)">/${needBl}</span></div><div class="l">past DD exit with a baseline</div></div>
   </div>`;
   if (!shown.length) {
     html += `<div class="tablewrap"><div class="empty"><h3>${communities.length ? "No communities match the filter" : "No communities yet"}</h3>${communities.length ? "Choose All for fund or state to widen the view." : "Add the first one on the Community tab. Each community needs a name and its Accepted LOI date; every other date forecasts from there."}</div></div>`;
@@ -445,26 +457,31 @@ function renderCommunity() {
     const late = sum.reduce((n,s)=>n+s.late,0), soon = sum.reduce((n,s)=>n+s.soon,0);
     const anchor = calc["1.1"];
     const closedAll = (STATUS_FLOOR[c.status] || 0) >= 9;
+    const nBaseline = MS.filter(m => calc[m.wbs].baseline).length;
     body = `<div class="commhead"><div><h2>${esc(c.name)}</h2>
-      <div class="meta"><span>Market <b>${esc(c.market||"\u2014")}</b></span><label title="Venture that developed the community">Fund <select id="comm-fund" ${dis}>${fundOptions(c.fund || "")}</select></label><label title="Who holds the community today">Owner <select id="comm-own" ${dis}>${ownOptions(c.ownership || "")}</select></label><label>State <select id="comm-state" ${dis}>${stateOptions(c.state || "")}</select></label><span>Accepted LOI <b class="mono">${anchor.anchored ? fmt(anchor.date) : "not set (template)"}</b></span><span>Stabilization ${calc["9.5"].actual ? "actual" : "forecast"} <b class="mono">${fmt(calc["9.5"].date)}</b></span></div></div>
+      <div class="meta"><span>Market <b>${esc(c.market||"\u2014")}</b></span><label title="Venture that developed the community">Fund <select id="comm-fund" ${dis}>${fundOptions(c.fund || "")}</select></label><label title="Who holds the community today">Owner <select id="comm-own" ${dis}>${ownOptions(c.ownership || "")}</select></label><label>State <select id="comm-state" ${dis}>${stateOptions(c.state || "")}</select></label><span>Accepted LOI <b class="mono">${anchor.anchored ? fmt(anchor.date) : "not set (template)"}</b></span><span>Stabilization ${calc["9.5"].actual ? "actual" : "forecast"} <b class="mono">${fmt(calc["9.5"].date)}</b>${calc["9.5"].variance !== null ? ` <span class="owner">(${varCell(calc["9.5"])} vs baseline)</span>` : ""}</span><span>Baseline <b>${nBaseline ? nBaseline + " dates" : "none"}</b></span></div></div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label style="display:flex;gap:6px;align-items:center">Status <select id="comm-status" ${dis} style="width:auto"><option value="">Not set</option>${statusOptions(c.status || "")}</select></label>${late ? chip("late", late+" late") : ""} ${soon ? chip("soon", soon+" due soon") : ""} ${!late && !soon ? chip("ok", closedAll ? "Nothing open" : "On track") : ""}</div></div>`;
     if (closedAll) body += `<div class="note">${esc(STATUS_LABEL[c.status])}: every pre-stabilization milestone is treated as complete, so nothing here can show as late. Actual dates can still be entered for the record. ${c.status === "stabilized" ? "The Stabilized &amp; Disposition stage stays open." : ""}</div>`;
     if (c.ownership && c.ownership !== c.fund) body += `<div class="note">Developed under <b>${esc(c.fund || "an unassigned fund")}</b>; now held by <b>${esc(c.ownership)}</b>. Stages 1 to 9 are the development record for the fund; the Stabilized &amp; Disposition stage belongs to the owner.</div>`;
     body += `<div class="ctl"><div class="seg" id="comm-view"><button type="button" data-cv="table" aria-pressed="${commView === "table"}">Table</button><button type="button" data-cv="gantt" aria-pressed="${commView === "gantt"}">Gantt</button></div>
-      <details style="margin-left:auto"><summary class="owner" style="cursor:pointer">Team for this community</summary><div class="roles" style="margin-top:8px">${ROLES.map(r => `<label>${esc(r)} <input data-role="${esc(r)}" value="${esc((c.roleOverrides || {})[r] || "")}" placeholder="${esc(roles[r] || "not set")}" ${dis}></label>`).join("")}</div><div class="owner" style="margin-top:6px">Blank uses the company-wide person for the role (Template tab).</div></details></div>`;
+      <details style="margin-left:auto"><summary class="owner" style="cursor:pointer">Team for this community</summary><div class="roles" style="margin-top:8px">${ROLES.map(r => `<label>${esc(r)} <input data-role="${esc(r)}" value="${esc((c.roleOverrides || {})[r] || "")}" placeholder="${esc(roles[r] || "not set")}" ${dis}></label>`).join("")}</div><div class="owner" style="margin-top:6px">Blank uses the company-wide person for the role (Template tab).</div></details>
+      <details><summary class="owner" style="cursor:pointer">Baseline source</summary><div style="margin-top:8px"><input id="comm-blsrc" value="${esc(c.baselineSource || "")}" placeholder="e.g. DD Exit memo 10/13/2025 - Original Budget model (BBL-DataSource)" ${dis} style="width:min(100%,520px)"></div><div class="owner" style="margin-top:6px">Which package the Baseline column came from. Set at DD exit and left alone; a later re-approval is a reforecast, not a new baseline.</div></details></div>`;
+    if (!nBaseline && pastDDExit(c, calc)) body += `<div class="note">No DD-exit baseline is loaded for this community, so variance to plan cannot be measured. Enter the Original Budget dates in the Baseline column (BBL-DataSource, inputs / bbl / DD Exit).</div>`;
     if (commView === "gantt") body += ganttSvg(c, calc, sum);
-    body += `<div class="tablewrap" ${commView === "gantt" ? "hidden" : ""}><table><thead><tr><th>WBS</th><th>Milestone</th><th>Owner</th><th>Pred.</th><th>Days</th><th>Forecast</th><th>Actual</th><th>Status</th></tr></thead><tbody>`;
+    body += `<div class="tablewrap" ${commView === "gantt" ? "hidden" : ""}><table><thead><tr><th>WBS</th><th>Milestone</th><th>Owner</th><th>Pred.</th><th>Days</th><th title="DD Exit (Original Budget) date">Baseline</th><th>Forecast</th><th>Actual</th><th title="Days after the baseline; positive is behind plan">Var.</th><th>Status</th></tr></thead><tbody>`;
     let lastStage = "";
     for (const m of MS) {
-      if (m.stage !== lastStage) { lastStage = m.stage; const s = sum.find(q => q.stage === m.stage); body += `<tr class="stage"><td colspan="5">${esc(m.stage)}</td><td colspan="3">${chip(s.status, s.status === "done" ? "Complete" : `${s.done}/${s.total} closed`)}</td></tr>`; }
+      if (m.stage !== lastStage) { lastStage = m.stage; const s = sum.find(q => q.stage === m.stage); body += `<tr class="stage"><td colspan="5">${esc(m.stage)}</td><td colspan="5">${chip(s.status, s.status === "done" ? "Complete" : `${s.done}/${s.total} closed`)}</td></tr>`; }
       const r = calc[m.wbs];
       body += `<tr><td class="mono">${m.wbs}</td><td class="name">${esc(m.name)}</td><td class="owner">${ownerCell(c, m)}</td><td class="mono">${m.pred || "—"}</td><td class="mono">${m.pred ? m.dur : "anchor"}</td>
+        <td><input type="date" id="b-${m.wbs.replace(".","-")}" data-kind="baseline" data-wbs="${m.wbs}" value="${r.baseline}" title="DD Exit baseline (Original Budget)" ${dis} style="${r.baseline ? "" : "color:var(--muted)"}"></td>
         <td><input type="date" id="f-${m.wbs.replace(".","-")}" data-kind="forecast" data-wbs="${m.wbs}" value="${r.override || r.date}" title="${r.override ? "Forecast override" : "Computed forecast; type to override"}" ${dis} style="${r.override ? "border-color:var(--soon)" : "color:var(--muted)"}"></td>
         <td><input type="date" id="a-${m.wbs.replace(".","-")}" data-kind="actual" data-wbs="${m.wbs}" value="${r.actual}" ${dis}></td>
+        <td class="mono">${varCell(r)}</td>
         <td>${chip(r.status, r.inferred ? "Complete (by status)" : undefined)}</td></tr>`;
     }
     body += `</tbody></table></div>
-    <div class="legend"><span class="owner">Grey forecast = computed from predecessor. Amber border = typed override (clear the field to return to computed). Entering an actual closes the milestone and moves every downstream forecast. "No record" means a later milestone has an actual, so this one was passed without a date; it is not counted as late.</span></div>
+    <div class="legend"><span class="owner">Baseline = the DD Exit (Original Budget) date; it never moves. Var. = days the actual or forecast sits after the baseline (red = behind plan). Grey forecast = computed from predecessor. Amber border = typed override (clear the field to return to computed). Entering an actual closes the milestone and moves every downstream forecast. "No record" means a later milestone has an actual, so this one was passed without a date; it is not counted as late.</span></div>
     <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost" id="del-comm" ${canWrite && db ? "" : "disabled"}>Remove this community</button><span id="del-confirm" hidden style="align-self:center" class="owner">Click again to confirm removal.</span></div>`;
   }
   el.innerHTML = loadBanner() + filterBar() + `<div class="grid"><aside>${rail}</aside><div style="min-width:0">${body}</div></div>`;
@@ -500,6 +517,7 @@ function renderCommunity() {
       saving = saving.then(() => db.collection("communities").doc(c.id).update({ roleOverrides: ro, updatedAt: today })).then(() => toast("Team saved")).catch(writeFailed);
     }));
     $("#comm-state").addEventListener("change", e => saveField("state", e.target.value, "State"));
+    $("#comm-blsrc").addEventListener("change", e => saveField("baselineSource", e.target.value.trim(), "Baseline source"));
     const del = $("#del-comm"); let armed = false;
     del.addEventListener("click", async () => {
       if (!armed) { armed = true; $("#del-confirm").hidden = false; return; }
@@ -516,7 +534,7 @@ function saveDate(c, wbs, kind, value) {
     // a typed forecast equal to the computed one is not an override
     const computed = compute(Object.assign({}, dates, { [wbs]: { actual: cur.actual } }), c.status)[wbs].date;
     if (!value || value === computed) delete cur.forecast; else cur.forecast = value;
-  } else { if (!value) delete cur.actual; else cur.actual = value; }
+  } else { if (!value) delete cur[kind]; else cur[kind] = value; }   // actual or baseline
   if (Object.keys(cur).length) dates[wbs] = cur; else delete dates[wbs];
   c.dates = dates; render();
   saving = saving.then(() => db.collection("communities").doc(c.id).update({ dates, updatedAt: today })).then(() => toast("Saved")).catch(writeFailed);
@@ -535,8 +553,8 @@ function renderUpcoming() {
   let html = loadBanner() + filterBar();
   if (!rows.length) { html += `<div class="tablewrap"><div class="empty"><h3>Nothing due in the next 90 days</h3>${communities.length ? "Every open milestone in this view is further out." : "Add a community to see its critical dates here."}</div></div>`; el.innerHTML = html; wireFilters(el); return; }
   html += `<div class="note">Open milestones that are late or forecast within 90 days, across all communities, soonest first. Sorted for the weekly deep-dive.</div>
-  <div class="tablewrap"><table><thead><tr><th>Forecast</th><th>Community</th><th>Milestone</th><th>Stage</th><th>Owner</th><th>Status</th></tr></thead><tbody>`;
-  for (const {c, m, r} of rows) html += `<tr><td class="mono">${fmt(r.date)}<div class="owner">${r.status === "late" ? daysBetween(r.date, today) + "d late" : "in " + daysBetween(today, r.date) + "d"}</div></td><td class="name"><a href="#" data-open="${esc(c.id)}" style="color:inherit">${esc(c.name)}</a><div class="owner">${esc([c.fund, c.state].filter(Boolean).join(" · "))}</div></td><td>${m.wbs} ${esc(m.name)}</td><td class="owner">${esc(m.stage)}</td><td class="owner">${ownerCell(c, m)}</td><td>${chip(r.status)}</td></tr>`;
+  <div class="tablewrap"><table><thead><tr><th>Forecast</th><th>Baseline</th><th>Community</th><th>Milestone</th><th>Stage</th><th>Owner</th><th>Status</th></tr></thead><tbody>`;
+  for (const {c, m, r} of rows) html += `<tr><td class="mono">${fmt(r.date)}<div class="owner">${r.status === "late" ? daysBetween(r.date, today) + "d late" : "in " + daysBetween(today, r.date) + "d"}</div></td><td class="mono">${r.baseline ? fmt(r.baseline) + `<div>${varCell(r)}</div>` : `<span class="owner">\u2014</span>`}</td><td class="name"><a href="#" data-open="${esc(c.id)}" style="color:inherit">${esc(c.name)}</a><div class="owner">${esc([c.fund, c.state].filter(Boolean).join(" · "))}</div></td><td>${m.wbs} ${esc(m.name)}</td><td class="owner">${esc(m.stage)}</td><td class="owner">${ownerCell(c, m)}</td><td>${chip(r.status)}</td></tr>`;
   html += `</tbody></table></div>`;
   el.innerHTML = html;
   wireFilters(el);
@@ -544,7 +562,7 @@ function renderUpcoming() {
 }
 function ganttSvg(c, calc, sum) {
   const W = 1100, L = 190, R = 20, rowH = 26, top = 36, H = top + STAGES.length * rowH + 14;
-  const dates = MS.map(m => calc[m.wbs].date).filter(Boolean).sort();
+  const dates = MS.flatMap(m => [calc[m.wbs].date, calc[m.wbs].baseline]).filter(Boolean).sort();
   let d0 = parse(dates[0]), d1 = parse(dates[dates.length - 1]);
   const tNow = parse(today); if (tNow < d0) d0 = tNow; if (tNow > d1) d1 = tNow;
   const pad = Math.max(60, Math.round((d1 - d0) / DAY * 0.04)); d0 -= pad * DAY; d1 += pad * DAY;
@@ -558,10 +576,11 @@ function ganttSvg(c, calc, sum) {
     out += `<line class="gl" x1="${L}" y1="${y + rowH}" x2="${W - R}" y2="${y + rowH}"/>`;
     out += `<text class="lbl" x="${L - 8}" y="${y + rowH / 2 + 4}" text-anchor="end">${esc(st.replace(" - Construction", ""))}</text>`;
     out += `<rect class="bar ${sg.status}" x="${x(a)}" y="${y + 7}" width="${Math.max(3, x(b) - x(a))}" height="${rowH - 14}" rx="3"/>`;
+    for (const { m, r } of items) { if (!r.baseline) continue; const bx = x(parse(r.baseline)), cy = y + rowH / 2; out += `<polygon class="ms bl" points="${bx},${cy - 6} ${bx + 6},${cy} ${bx},${cy + 6} ${bx - 6},${cy}"><title>${m.wbs} ${esc(m.name)}: baseline ${fmt(r.baseline)}${r.variance ? ` (now ${r.variance > 0 ? "+" : ""}${r.variance}d)` : ""}</title></polygon>`; }
     for (const { m, r } of items) { const cx = x(parse(r.date)), cy = y + rowH / 2; const cls = r.status === "passed" ? "na" : r.status; out += `<polygon class="ms ${cls}" points="${cx},${cy - 6} ${cx + 6},${cy} ${cx},${cy + 6} ${cx - 6},${cy}"><title>${m.wbs} ${esc(m.name)}: ${fmt(r.date)} (${r.actual ? "actual" : r.override ? "forecast override" : "forecast"}; ${r.inferred ? "complete by status" : r.status})</title></polygon>`; }
   });
   out += `<line class="today" x1="${x(tNow)}" y1="${top - 14}" x2="${x(tNow)}" y2="${H - 10}"/><text class="tl" x="${x(tNow) + 4}" y="${H - 2}">today ${fmt(today)}</text></svg>`;
-  return `<div class="tablewrap" style="padding:12px 14px">${out}<div class="legend"><span class="owner">Bars span each stage's first to last milestone; diamonds are milestones, colored by status (teal complete, green on track, gold due soon, red late, grey no record). Hover a diamond for the date and whether it is an actual or a forecast. Switch to Table to edit dates.</span></div></div>`;
+  return `<div class="tablewrap" style="padding:12px 14px">${out}<div class="legend"><span class="owner">Bars span each stage's first to last milestone; diamonds are milestones, colored by status (teal complete, green on track, gold due soon, red late, grey no record); hollow dashed diamonds are the DD-exit baseline dates. Hover a diamond for the date and whether it is an actual, a forecast or a baseline. Switch to Table to edit dates.</span></div></div>`;
 }
 function renderReview() {
   const el = $("#view-review");
@@ -573,20 +592,22 @@ function renderReview() {
       const r = calc[m.wbs];
       if (r.override) rows.push({ c, wbs: m.wbs, kind: "Forecast override", issue: `${m.name}: typed forecast ${fmt(r.override)} replaces the computed date. Confirm it is still the plan.`, source: "Entered in the calendar (Planner grid, Design Management update or hand entry; see the community notes)" });
       else if (r.status === "passed") rows.push({ c, wbs: m.wbs, kind: "No record", issue: `${m.name}: a later milestone has an actual but this one has no date.`, source: "Gap in the historical sheet, Planner grid or PM Report" });
+      if (r.baseline && !isClosed(r.status) && r.variance > 90) rows.push({ c, wbs: m.wbs, kind: "Behind baseline", issue: `${m.name}: ${r.actual ? "actual" : "forecast"} ${fmt(r.date)} is ${r.variance} days after the DD-exit baseline ${fmt(r.baseline)}.`, source: c.baselineSource ? "Baseline: " + c.baselineSource : "Baseline entered in the calendar" });
     }
+    if (!hasBaseline(c) && pastDDExit(c, calc)) rows.push({ c, wbs: "", kind: "No baseline", issue: "Past DD exit with no DD-exit baseline dates, so variance to plan cannot be measured.", source: c.baselineSource ? c.baselineSource : "No Original Budget model or memo found in BBL-DataSource (inputs / bbl / DD Exit)" });
     const inferred = MS.filter(m => calc[m.wbs].inferred).length;
     if (inferred) rows.push({ c, wbs: "", kind: "Complete by status", issue: `${inferred} milestones are closed by the community status (${STATUS_LABEL[c.status]}) rather than by a date.`, source: "Status from Road to Stable Occupancy (9/26/2026) and the Property Operations brief (10/7/2026)" });
     if (!calc["1.1"].anchored && !Object.keys(c.dates || {}).length) rows.push({ c, wbs: "1.1", kind: "Template only", issue: "No dates at all; every forecast is the 2026 template chain.", source: "No source yet" });
   }
-  const order = { "Flagged at load": 0, "No record": 1, "Forecast override": 2, "Complete by status": 3, "Template only": 4 };
+  const order = { "Flagged at load": 0, "Behind baseline": 1, "No record": 2, "Forecast override": 3, "No baseline": 4, "Complete by status": 5, "Template only": 6 };
   rows.sort((a, b) => a.c.name.localeCompare(b.c.name) || (order[a.kind] - order[b.kind]) || a.wbs.localeCompare(b.wbs, undefined, { numeric: true }));
   let html = loadBanner() + filterBar();
-  html += `<div class="note"><b>Where the dates come from.</b> Acquisition and entitlement actuals: <i>ST Process Map - Historical Communities.xlsx</i> (keyed by hand from Sitetracker and deal files, Mar 2026). Land, construction and opening dates for active deals: the construction team's Planner task grids exported 10/29/2026 (<i>Pre-Construction Schedule_29Oct</i> PDFs). Vertical start, first and last delivery and amenity dates for completed communities: the PM Reports staged in BBL-DataSource (first home Start Date, first and last Hand Off / Rent Ready, amenity row). Narrative forecasts: Design Management Portfolio Update 10/28/2026. Statuses, fund and ownership: Road to Stable Occupancy, the Property Operations brief, and BBLivingDW Community_Lookup. Every community's notes name the file behind each date.</div>`;
+  html += `<div class="note"><b>Where the dates come from.</b> Acquisition and entitlement actuals: <i>ST Process Map - Historical Communities.xlsx</i> (keyed by hand from Sitetracker and deal files, Mar 2026). Land, construction and opening dates for active deals: the construction team's Planner task grids exported 10/29/2026 (<i>Pre-Construction Schedule_29Oct</i> PDFs). Vertical start, first and last delivery and amenity dates for completed communities: the PM Reports staged in BBL-DataSource (first home Start Date, first and last Hand Off / Rent Ready, amenity row). Narrative forecasts: Design Management Portfolio Update 10/28/2026. Statuses, fund and ownership: Road to Stable Occupancy, the Property Operations brief, and BBLivingDW Community_Lookup. <b>DD-exit baselines</b> (loaded 2026-11-08): the Original Budget model or memo per deal in BBL-DataSource (inputs / bbl / DD Exit), which is the last package sent to TPG before the deal went hard; the model's Assumptions timing block is mapped to the Level 1 milestones, and each community's baseline source names the package. Deals still in due diligence carry their IC-memo schedule as a provisional baseline. Every community's notes name the file behind each date.</div>`;
   if (!rows.length) { html += `<div class="tablewrap"><div class="empty"><h3>Nothing to review</h3>No flagged dates in this view.</div></div>`; el.innerHTML = html; wireFilters(el); return; }
   const kinds = {}; for (const r of rows) kinds[r.kind] = (kinds[r.kind] || 0) + 1;
-  html += `<div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr))">${Object.entries(order).map(([k]) => `<div class="kpi"><div class="n">${kinds[k] || 0}</div><div class="l">${k}</div></div>`).join("")}</div>`;
+  html += `<div class="kpis" style="grid-template-columns:repeat(${Object.keys(order).length},minmax(0,1fr))">${Object.entries(order).map(([k]) => `<div class="kpi"><div class="n">${kinds[k] || 0}</div><div class="l">${k}</div></div>`).join("")}</div>`;
   html += `<div class="tablewrap"><table><thead><tr><th>Community</th><th>Milestone</th><th>Type</th><th>What needs review</th><th>Source of the assumption</th></tr></thead><tbody>`;
-  for (const r of rows) { const m = MS.find(q => q.wbs === r.wbs); html += `<tr><td class="name"><a href="#" data-open="${esc(r.c.id)}" style="color:inherit">${esc(r.c.name)}</a><div class="owner">${esc([r.c.fund, r.c.state].filter(Boolean).join(" · "))}</div></td><td class="mono">${r.wbs ? r.wbs + " " : ""}<span class="owner">${m ? esc(m.name) : ""}</span></td><td><span class="chip ${r.kind === "Flagged at load" ? "soon" : r.kind === "No record" ? "na" : r.kind === "Forecast override" ? "ok" : "done"}">${r.kind}</span></td><td>${esc(r.issue)}</td><td class="owner">${esc(r.source)}</td></tr>`; }
+  for (const r of rows) { const m = MS.find(q => q.wbs === r.wbs); html += `<tr><td class="name"><a href="#" data-open="${esc(r.c.id)}" style="color:inherit">${esc(r.c.name)}</a><div class="owner">${esc([r.c.fund, r.c.state].filter(Boolean).join(" · "))}</div></td><td class="mono">${r.wbs ? r.wbs + " " : ""}<span class="owner">${m ? esc(m.name) : ""}</span></td><td><span class="chip ${r.kind === "Flagged at load" ? "soon" : r.kind === "Behind baseline" ? "late" : r.kind === "No record" || r.kind === "No baseline" ? "na" : r.kind === "Forecast override" ? "ok" : "done"}">${r.kind}</span></td><td>${esc(r.issue)}</td><td class="owner">${esc(r.source)}</td></tr>`; }
   html += `</tbody></table></div>`;
   el.innerHTML = html;
   wireFilters(el);
