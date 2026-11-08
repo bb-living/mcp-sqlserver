@@ -93,6 +93,20 @@ tr.stage td { background: var(--panel) !important; font-weight: 700; font-size: 
 .chip.p-lead { background: var(--bb-char); color: var(--on-accent); }
 
 .grid { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 18px; }
+.gantt { width: 100%; height: auto; display: block; font-family: var(--font); }
+.gantt .lbl { font-size: 12px; fill: var(--fg); }
+.gantt .ax { font-size: 11px; fill: var(--muted); }
+.gantt .gl { stroke: var(--line); stroke-width: 1; }
+.gantt .bar { fill: var(--teal-l); stroke: var(--line); }
+.gantt .bar.late { fill: var(--bad-l); } .gantt .bar.soon { fill: var(--gold-l); } .gantt .bar.done { fill: var(--teal-l); }
+.gantt .ms { stroke: var(--panel); stroke-width: 1; }
+.gantt .ms.done { fill: var(--teal-ink); } .gantt .ms.late { fill: var(--bad); } .gantt .ms.soon { fill: var(--gold-ink); } .gantt .ms.ok { fill: var(--ok); } .gantt .ms.na { fill: var(--ph); }
+.gantt .today { stroke: var(--bb-char); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.gantt .tl { font-size: 11px; fill: var(--muted); }
+.roles { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px 16px; }
+.roles label { display: grid; gap: 3px; }
+.person { color: var(--teal-ink); font-size: 12px; display: block; }
+.person.none { color: var(--ph); }
 @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
 .rail { display: flex; flex-direction: column; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; align-self: start; }
 .rail button { text-align: left; background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 7px 10px; cursor: pointer; color: var(--fg); font-weight: 700; font-size: 13.5px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
@@ -139,18 +153,20 @@ details.howto b, details.howto i { color: var(--fg); }
     <button role="tab" id="tab-portfolio" aria-selected="true" data-view="portfolio">Portfolio</button>
     <button role="tab" id="tab-community" aria-selected="false" data-view="community">Community</button>
     <button role="tab" id="tab-upcoming" aria-selected="false" data-view="upcoming">Next 90 days</button>
+    <button role="tab" id="tab-review" aria-selected="false" data-view="review">Review</button>
     <button role="tab" id="tab-template" aria-selected="false" data-view="template">Template</button>
   </nav>
   <main>
     <section id="view-portfolio"></section>
     <section id="view-community" hidden></section>
     <section id="view-upcoming" hidden></section>
+    <section id="view-review" hidden></section>
     <section id="view-template" hidden></section>
   </main>
   <details class="howto">
     <summary>How the dates work</summary>
     <p>Each milestone has a predecessor and a duration in calendar days, copied from the Updated ST Process Map sheet sent to Sitetracker in March 2026. A milestone's <b>forecast</b> is its predecessor's actual date (or forecast, if not yet actual) plus the duration, unless someone has typed a forecast override. An <b>actual</b> date closes the milestone. Status is late when the forecast is in the past with no actual, and due soon when it falls inside the next 30 days. The Accepted LOI date anchors the whole chain, so a community with no dates at all shows template dates from 1/1/2026.</p>
-    <p><b>Fund and state</b> follow the warehouse: BBLivingDW's community lookup carries one fund (B2R I, B2R II, Blackbird, Legacy, TAC+, Historical for divested communities) and one state per community; Fee Build is added for third-party builds. The fund and state filters above the Portfolio, Community and Next 90 days views are remembered on this device. Pipeline deals that have no fund yet show as Unassigned.</p>
+    <p><b>Fund, owner and state.</b> Fund is the venture that developed the community; Owner is who holds it today. Blackbird communities and the two divested ones were developed under B2R I, so their development dates filter with B2R I and only the Stabilized &amp; Disposition stage belongs to the owner. Values follow the warehouse: BBLivingDW's community lookup carries one fund (B2R I, B2R II, Blackbird, Legacy, TAC+, Historical for divested communities) and one state per community; Fee Build is added for third-party builds. The fund and state filters above the Portfolio, Community and Next 90 days views are remembered on this device. Pipeline deals that have no fund yet show as Unassigned.</p>
     <p>Two rules keep history from showing as late. The community <b>status</b> closes the stages behind it: Pre-development closes IC Memo and DD Period; Under construction closes everything through Land Closing; Lease-up closes through Land Development; Stabilized closes everything but the Stabilized &amp; Disposition stage; Sold closes all. Those show as "Complete (by status)". Separately, a milestone with no actual that sits before a later milestone that does have an actual shows as <b>no record</b> rather than late.</p>
     <p><b>Where the dates came from.</b> Acquisition and entitlement actuals (loaded 2026-11-07) are the per-community columns of <i>ST Process Map - Historical Communities.xlsx</i> (Strategy site, Sitetracker / Complete Workflow Project). Land, construction and opening dates (loaded 2026-11-08) are the construction team's Planner task grids, exported weekly as <i>&lt;community&gt; Pre-Construction Schedule_&lt;date&gt;.pdf</i> in the Construction site (Reporting Documents / Claude Project Folder / Task Grid Schedules); the 10/29/2026 set was used, past dates as actuals and future dates as forecasts. Vertical start, first and last home delivery and amenity dates for completed and leasing communities (also loaded 2026-11-08) come from the PM Reports staged in BBL-DataSource (inputs / cns / PM Report): first home Start Date, first and last Hand Off / Rent Ready, and the amenity row. Each community's notes say which file each date came from.</p>
   </details>
@@ -173,6 +189,10 @@ const STATUS_ORDER = Object.fromEntries(STATUSES.map((s,i) => [s[0], i]));
 // builds (Skyline); blank = not yet assigned (pipeline deals live in bix.PipelineCommunity, which carries no fund).
 const FUNDS = ["B2R I","B2R II","Blackbird","Legacy","TAC+","Fee Build","Historical"];
 const STATES = ["AZ","CO","FL","ID","NC","TX"];
+// fund = the venture that developed the community (B2R I, B2R II, Fee Build ...). ownership = who holds it today
+// (B2R I, B2R II, Blackbird, Legacy, TAC+, a fee-build client, or Sold). Blackbird and the divested communities were
+// developed under B2R I, so their development dates sit with B2R I and only post-stabilization dates belong to the owner.
+const OWNERSHIPS = ["B2R I","B2R II","Blackbird","Legacy","TAC+","Harvard (fee build)","Sold / exited"];
 const FUND_ORDER = Object.fromEntries(FUNDS.map((f,i) => [f, i]));
 // [wbs, name, predecessor, duration (calendar days), owner]
 const MS = [
@@ -236,6 +256,7 @@ const MS = [
 ].map(r => { const stageNo = parseInt(r[0],10); return { wbs:r[0], name:r[1], pred:r[2], dur:r[3], owner:r[4], stage: STAGES[stageNo-1], stageNo, seq: parseInt(r[0].split(".")[1],10), key: stageNo*100 + parseInt(r[0].split(".")[1],10) }; });
 const BY_WBS = Object.fromEntries(MS.map(m => [m.wbs, m]));
 const TEMPLATE_ANCHOR = "2026-01-01";
+const ROLES = [...new Set(MS.map(m => m.owner))];
 const SOON_DAYS = 30;
 
 // ---------- date helpers (all dates are ISO strings, computed in UTC to avoid DST drift) ----------
@@ -303,24 +324,31 @@ function stageSummary(calc) {
 
 // ---------- state ----------
 let db = null, userApi = null, canWrite = true;
-let communities = [];           // [{id, name, market, fund, state, status, notes, dates}]
+let communities = [];           // [{id, name, market, fund, ownership, state, status, notes, dates, review, roleOverrides}]
 let selectedId = null;
 let view = "portfolio";
 let loading = true, loadNote = "";
-const filters = { fund: "All", state: "All" };
-try { const f = JSON.parse(localStorage.getItem("cdc-filters") || "{}"); if (f.fund) filters.fund = f.fund; if (f.state) filters.state = f.state; } catch (e) {}
+const filters = { fund: "All", ownership: "All", state: "All" };
+let roles = {};                 // settings/roles: owner role -> person
+let commView = "table";         // Community tab: "table" or "gantt"
+try { const f = JSON.parse(localStorage.getItem("cdc-filters") || "{}"); if (f.fund) filters.fund = f.fund; if (f.ownership) filters.ownership = f.ownership; if (f.state) filters.state = f.state; } catch (e) {}
 const saveFilters = () => { try { localStorage.setItem("cdc-filters", JSON.stringify(filters)); } catch (e) {} };
 const fundOf = c => (c.fund || "").trim() || "Unassigned";
 const stateOf = c => (c.state || "").trim() || "";
-const matchesFilters = c => (filters.fund === "All" || fundOf(c) === filters.fund) && (filters.state === "All" || stateOf(c) === filters.state);
+const ownershipOf = c => (c.ownership || "").trim() || "Unassigned";
+const OWN_ORDER = Object.fromEntries(OWNERSHIPS.map((f,i) => [f, i]));
+const personFor = (c, role) => ((c && c.roleOverrides && c.roleOverrides[role]) || roles[role] || "").trim();
+const ownerCell = (c, m) => { const p = personFor(c, m.owner); return `${esc(m.owner)}<span class="person ${p ? "" : "none"}">${p ? esc(p) : "person not set"}</span>`; };
+const matchesFilters = c => (filters.fund === "All" || fundOf(c) === filters.fund) && (filters.ownership === "All" || ownershipOf(c) === filters.ownership) && (filters.state === "All" || stateOf(c) === filters.state);
 const visibleCommunities = () => communities.filter(matchesFilters);
 function filterBar() {
   const fundsPresent = [...new Set(communities.map(fundOf))].sort((a,b) => ((FUND_ORDER[a] ?? 98) - (FUND_ORDER[b] ?? 98)) || a.localeCompare(b));
   const statesPresent = [...new Set(communities.map(stateOf).filter(Boolean))].sort();
+  const ownPresent = [...new Set(communities.map(ownershipOf))].sort((a,b) => ((OWN_ORDER[a] ?? 98) - (OWN_ORDER[b] ?? 98)) || a.localeCompare(b));
   if (!communities.length) return "";
   const seg = (key, opts) => `<div class="seg" data-filter="${key}">${["All", ...opts].map(o => `<button type="button" data-val="${esc(o)}" aria-pressed="${filters[key] === o}">${esc(o)}</button>`).join("")}</div>`;
   const n = visibleCommunities().length;
-  return `<div class="ctl"><label>Fund</label>${seg("fund", fundsPresent)}<label>State</label>${seg("state", statesPresent)}<span class="count">${n === communities.length ? `${n} communities` : `${n} of ${communities.length} communities`}</span></div>`;
+  return `<div class="ctl"><label title="Venture that developed the community">Fund</label>${seg("fund", fundsPresent)}<label title="Who holds the community today">Owner</label>${seg("ownership", ownPresent)}<label>State</label>${seg("state", statesPresent)}<span class="count">${n === communities.length ? `${n} communities` : `${n} of ${communities.length} communities`}</span></div>`;
 }
 function wireFilters(el) {
   el.querySelectorAll(".seg[data-filter] button").forEach(b => b.addEventListener("click", () => {
@@ -335,13 +363,14 @@ const sortComms = list => list.slice().sort((a,b) => ((STATUS_ORDER[a.status] ??
 
 // ---------- rendering ----------
 function render() {
-  for (const v of ["portfolio","community","upcoming","template"]) {
+  for (const v of ["portfolio","community","upcoming","review","template"]) {
     $("#view-"+v).hidden = v !== view;
     $("#tab-"+v).setAttribute("aria-selected", String(v === view));
   }
   if (view === "portfolio") renderPortfolio();
   if (view === "community") renderCommunity();
   if (view === "upcoming") renderUpcoming();
+  if (view === "review") renderReview();
   if (view === "template") renderTemplate();
 }
 function loadBanner() {
@@ -371,7 +400,7 @@ function renderPortfolio() {
   html += `<div class="tablewrap"><table><thead><tr><th>Community</th>${STAGES.map(s => `<th>${esc(s.replace(" - Construction",""))}</th>`).join("")}</tr></thead><tbody>`;
   for (const {c, calc} of calcs.sort((a,b) => ((STATUS_ORDER[a.c.status] ?? 99) - (STATUS_ORDER[b.c.status] ?? 99)) || a.c.name.localeCompare(b.c.name))) {
     const sum = stageSummary(calc);
-    html += `<tr><td class="name"><a href="#" data-open="${esc(c.id)}" style="color:inherit">${esc(c.name)}</a><div class="owner" style="margin-top:3px">${statusChip(c.status)} ${esc([c.market, fundOf(c) === "Unassigned" ? "" : c.fund].filter(Boolean).join(" · "))}</div></td>`;
+    html += `<tr><td class="name"><a href="#" data-open="${esc(c.id)}" style="color:inherit">${esc(c.name)}</a><div class="owner" style="margin-top:3px">${statusChip(c.status)} ${esc([c.market, fundOf(c) === "Unassigned" ? "" : c.fund, c.ownership && c.ownership !== c.fund ? "owned by " + c.ownership : ""].filter(Boolean).join(" · "))}</div></td>`;
     for (const s of sum) {
       html += `<td>${chip(s.status, s.status === "done" ? "Complete" : `${s.done}/${s.total}`)}${s.next ? `<div class="mono" style="margin-top:4px">${fmt(s.next)}</div>` : ""}</td>`;
     }
@@ -392,6 +421,7 @@ function renderCommunity() {
   const statusOptions = sel => STATUSES.map(([v,l]) => `<option value="${v}" ${v === sel ? "selected" : ""}>${l}</option>`).join("");
   const fundOptions = sel => `<option value="">Unassigned</option>` + FUNDS.map(f => `<option value="${f}" ${f === sel ? "selected" : ""}>${f}</option>`).join("") + (sel && !FUNDS.includes(sel) ? `<option value="${esc(sel)}" selected>${esc(sel)}</option>` : "");
   const stateOptions = sel => `<option value="">Not set</option>` + STATES.map(f => `<option value="${f}" ${f === sel ? "selected" : ""}>${f}</option>`).join("") + (sel && !STATES.includes(sel) ? `<option value="${esc(sel)}" selected>${esc(sel)}</option>` : "");
+  const ownOptions = sel => `<option value="">Unassigned</option>` + OWNERSHIPS.map(f => `<option value="${f}" ${f === sel ? "selected" : ""}>${f}</option>`).join("") + (sel && !OWNERSHIPS.includes(sel) ? `<option value="${esc(sel)}" selected>${esc(sel)}</option>` : "");
   let rail = `<div class="rail">` + sorted.map(x => {
     const s = stageSummary(compute(x.dates, x.status)); const late = s.reduce((n,q)=>n+q.late,0);
     return `<button data-sel="${esc(x.id)}" aria-current="${x.id === selectedId}"><span>${esc(x.name)}</span>${late ? `<span class="chip late">${late} late</span>` : `<span class="m">${esc(STATUS_LABEL[x.status] || x.market || "")}</span>`}</button>`;
@@ -400,6 +430,7 @@ function renderCommunity() {
     <label>New community <input id="add-name" name="name" required placeholder="Community name" ${dis}></label>
     <label>Market <input id="add-market" name="market" placeholder="e.g. Phoenix, AZ" ${dis}></label>
     <label>Fund <select id="add-fund" name="fund" ${dis}>${fundOptions("")}</select></label>
+    <label>Owner <select id="add-own" name="ownership" ${dis}>${ownOptions("")}</select></label>
     <label>State <select id="add-state" name="state" ${dis}>${stateOptions("")}</select></label>
     <label>Status <select id="add-status" name="status" ${dis}><option value="">Not set</option>${statusOptions("")}</select></label>
     <label>Accepted LOI date <input id="add-loi" name="loi" type="date" ${dis}></label>
@@ -415,15 +446,19 @@ function renderCommunity() {
     const anchor = calc["1.1"];
     const closedAll = (STATUS_FLOOR[c.status] || 0) >= 9;
     body = `<div class="commhead"><div><h2>${esc(c.name)}</h2>
-      <div class="meta"><span>Market <b>${esc(c.market||"\u2014")}</b></span><label>Fund <select id="comm-fund" ${dis}>${fundOptions(c.fund || "")}</select></label><label>State <select id="comm-state" ${dis}>${stateOptions(c.state || "")}</select></label><span>Accepted LOI <b class="mono">${anchor.anchored ? fmt(anchor.date) : "not set (template)"}</b></span><span>Stabilization ${calc["9.5"].actual ? "actual" : "forecast"} <b class="mono">${fmt(calc["9.5"].date)}</b></span></div></div>
+      <div class="meta"><span>Market <b>${esc(c.market||"\u2014")}</b></span><label title="Venture that developed the community">Fund <select id="comm-fund" ${dis}>${fundOptions(c.fund || "")}</select></label><label title="Who holds the community today">Owner <select id="comm-own" ${dis}>${ownOptions(c.ownership || "")}</select></label><label>State <select id="comm-state" ${dis}>${stateOptions(c.state || "")}</select></label><span>Accepted LOI <b class="mono">${anchor.anchored ? fmt(anchor.date) : "not set (template)"}</b></span><span>Stabilization ${calc["9.5"].actual ? "actual" : "forecast"} <b class="mono">${fmt(calc["9.5"].date)}</b></span></div></div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label style="display:flex;gap:6px;align-items:center">Status <select id="comm-status" ${dis} style="width:auto"><option value="">Not set</option>${statusOptions(c.status || "")}</select></label>${late ? chip("late", late+" late") : ""} ${soon ? chip("soon", soon+" due soon") : ""} ${!late && !soon ? chip("ok", closedAll ? "Nothing open" : "On track") : ""}</div></div>`;
     if (closedAll) body += `<div class="note">${esc(STATUS_LABEL[c.status])}: every pre-stabilization milestone is treated as complete, so nothing here can show as late. Actual dates can still be entered for the record. ${c.status === "stabilized" ? "The Stabilized &amp; Disposition stage stays open." : ""}</div>`;
-    body += `<div class="tablewrap"><table><thead><tr><th>WBS</th><th>Milestone</th><th>Owner</th><th>Pred.</th><th>Days</th><th>Forecast</th><th>Actual</th><th>Status</th></tr></thead><tbody>`;
+    if (c.ownership && c.ownership !== c.fund) body += `<div class="note">Developed under <b>${esc(c.fund || "an unassigned fund")}</b>; now held by <b>${esc(c.ownership)}</b>. Stages 1 to 9 are the development record for the fund; the Stabilized &amp; Disposition stage belongs to the owner.</div>`;
+    body += `<div class="ctl"><div class="seg" id="comm-view"><button type="button" data-cv="table" aria-pressed="${commView === "table"}">Table</button><button type="button" data-cv="gantt" aria-pressed="${commView === "gantt"}">Gantt</button></div>
+      <details style="margin-left:auto"><summary class="owner" style="cursor:pointer">Team for this community</summary><div class="roles" style="margin-top:8px">${ROLES.map(r => `<label>${esc(r)} <input data-role="${esc(r)}" value="${esc((c.roleOverrides || {})[r] || "")}" placeholder="${esc(roles[r] || "not set")}" ${dis}></label>`).join("")}</div><div class="owner" style="margin-top:6px">Blank uses the company-wide person for the role (Template tab).</div></details></div>`;
+    if (commView === "gantt") body += ganttSvg(c, calc, sum);
+    body += `<div class="tablewrap" ${commView === "gantt" ? "hidden" : ""}><table><thead><tr><th>WBS</th><th>Milestone</th><th>Owner</th><th>Pred.</th><th>Days</th><th>Forecast</th><th>Actual</th><th>Status</th></tr></thead><tbody>`;
     let lastStage = "";
     for (const m of MS) {
       if (m.stage !== lastStage) { lastStage = m.stage; const s = sum.find(q => q.stage === m.stage); body += `<tr class="stage"><td colspan="5">${esc(m.stage)}</td><td colspan="3">${chip(s.status, s.status === "done" ? "Complete" : `${s.done}/${s.total} closed`)}</td></tr>`; }
       const r = calc[m.wbs];
-      body += `<tr><td class="mono">${m.wbs}</td><td class="name">${esc(m.name)}</td><td class="owner">${esc(m.owner)}</td><td class="mono">${m.pred || "—"}</td><td class="mono">${m.pred ? m.dur : "anchor"}</td>
+      body += `<tr><td class="mono">${m.wbs}</td><td class="name">${esc(m.name)}</td><td class="owner">${ownerCell(c, m)}</td><td class="mono">${m.pred || "—"}</td><td class="mono">${m.pred ? m.dur : "anchor"}</td>
         <td><input type="date" id="f-${m.wbs.replace(".","-")}" data-kind="forecast" data-wbs="${m.wbs}" value="${r.override || r.date}" title="${r.override ? "Forecast override" : "Computed forecast; type to override"}" ${dis} style="${r.override ? "border-color:var(--soon)" : "color:var(--muted)"}"></td>
         <td><input type="date" id="a-${m.wbs.replace(".","-")}" data-kind="actual" data-wbs="${m.wbs}" value="${r.actual}" ${dis}></td>
         <td>${chip(r.status, r.inferred ? "Complete (by status)" : undefined)}</td></tr>`;
@@ -441,7 +476,7 @@ function renderCommunity() {
     const name = $("#add-name").value.trim(); if (!name || !db) return;
     const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || ("c-" + Date.now());
     const loi = $("#add-loi").value;
-    const doc = { name, market: $("#add-market").value.trim(), fund: $("#add-fund").value, state: $("#add-state").value, status: $("#add-status").value || "", notes: "", dates: loi ? { "1.1": { actual: loi } } : {}, createdAt: today };
+    const doc = { name, market: $("#add-market").value.trim(), fund: $("#add-fund").value, ownership: $("#add-own").value, state: $("#add-state").value, status: $("#add-status").value || "", notes: "", dates: loi ? { "1.1": { actual: loi } } : {}, createdAt: today };
     try { await db.collection("communities").doc(id).set(doc); selectedId = id; toast("Community added"); form.reset(); }
     catch (err) { writeFailed(err); }
   });
@@ -455,6 +490,15 @@ function renderCommunity() {
     };
     $("#comm-status").addEventListener("change", e => saveField("status", e.target.value, "Status"));
     $("#comm-fund").addEventListener("change", e => saveField("fund", e.target.value, "Fund"));
+    $("#comm-own").addEventListener("change", e => saveField("ownership", e.target.value, "Owner"));
+    el.querySelectorAll("#comm-view button").forEach(b => b.addEventListener("click", () => { commView = b.dataset.cv; render(); }));
+    el.querySelectorAll("input[data-role]").forEach(inp => inp.addEventListener("change", () => {
+      if (!db) return;
+      const ro = Object.assign({}, c.roleOverrides || {}); const v = inp.value.trim();
+      if (v) ro[inp.dataset.role] = v; else delete ro[inp.dataset.role];
+      c.roleOverrides = ro; render();
+      saving = saving.then(() => db.collection("communities").doc(c.id).update({ roleOverrides: ro, updatedAt: today })).then(() => toast("Team saved")).catch(writeFailed);
+    }));
     $("#comm-state").addEventListener("change", e => saveField("state", e.target.value, "State"));
     const del = $("#del-comm"); let armed = false;
     del.addEventListener("click", async () => {
@@ -492,7 +536,57 @@ function renderUpcoming() {
   if (!rows.length) { html += `<div class="tablewrap"><div class="empty"><h3>Nothing due in the next 90 days</h3>${communities.length ? "Every open milestone in this view is further out." : "Add a community to see its critical dates here."}</div></div>`; el.innerHTML = html; wireFilters(el); return; }
   html += `<div class="note">Open milestones that are late or forecast within 90 days, across all communities, soonest first. Sorted for the weekly deep-dive.</div>
   <div class="tablewrap"><table><thead><tr><th>Forecast</th><th>Community</th><th>Milestone</th><th>Stage</th><th>Owner</th><th>Status</th></tr></thead><tbody>`;
-  for (const {c, m, r} of rows) html += `<tr><td class="mono">${fmt(r.date)}<div class="owner">${r.status === "late" ? daysBetween(r.date, today) + "d late" : "in " + daysBetween(today, r.date) + "d"}</div></td><td class="name"><a href="#" data-open="${esc(c.id)}" style="color:inherit">${esc(c.name)}</a><div class="owner">${esc([c.fund, c.state].filter(Boolean).join(" · "))}</div></td><td>${m.wbs} ${esc(m.name)}</td><td class="owner">${esc(m.stage)}</td><td class="owner">${esc(m.owner)}</td><td>${chip(r.status)}</td></tr>`;
+  for (const {c, m, r} of rows) html += `<tr><td class="mono">${fmt(r.date)}<div class="owner">${r.status === "late" ? daysBetween(r.date, today) + "d late" : "in " + daysBetween(today, r.date) + "d"}</div></td><td class="name"><a href="#" data-open="${esc(c.id)}" style="color:inherit">${esc(c.name)}</a><div class="owner">${esc([c.fund, c.state].filter(Boolean).join(" · "))}</div></td><td>${m.wbs} ${esc(m.name)}</td><td class="owner">${esc(m.stage)}</td><td class="owner">${ownerCell(c, m)}</td><td>${chip(r.status)}</td></tr>`;
+  html += `</tbody></table></div>`;
+  el.innerHTML = html;
+  wireFilters(el);
+  el.querySelectorAll("[data-open]").forEach(a => a.addEventListener("click", e => { e.preventDefault(); selectedId = a.dataset.open; view = "community"; render(); }));
+}
+function ganttSvg(c, calc, sum) {
+  const W = 1100, L = 190, R = 20, rowH = 26, top = 36, H = top + STAGES.length * rowH + 14;
+  const dates = MS.map(m => calc[m.wbs].date).filter(Boolean).sort();
+  let d0 = parse(dates[0]), d1 = parse(dates[dates.length - 1]);
+  const tNow = parse(today); if (tNow < d0) d0 = tNow; if (tNow > d1) d1 = tNow;
+  const pad = Math.max(60, Math.round((d1 - d0) / DAY * 0.04)); d0 -= pad * DAY; d1 += pad * DAY;
+  const x = t => L + (t - d0) / (d1 - d0) * (W - L - R);
+  let out = `<svg class="gantt" viewBox="0 0 ${W} ${H}" role="img" aria-label="Milestone timeline for ${esc(c.name)}">`;
+  const y0 = new Date(d0).getUTCFullYear(), y1 = new Date(d1).getUTCFullYear();
+  for (let y = y0; y <= y1 + 1; y++) { const t = Date.UTC(y, 0, 1); if (t < d0 || t > d1) continue; out += `<line class="gl" x1="${x(t)}" y1="${top - 14}" x2="${x(t)}" y2="${H - 10}"/><text class="ax" x="${x(t) + 3}" y="${top - 18}">${y}</text>`; }
+  STAGES.forEach((st, i) => {
+    const y = top + i * rowH; const items = MS.filter(m => m.stage === st).map(m => ({ m, r: calc[m.wbs] }));
+    const ts = items.map(q => parse(q.r.date)); const a = Math.min(...ts), b = Math.max(...ts); const sg = sum[i];
+    out += `<line class="gl" x1="${L}" y1="${y + rowH}" x2="${W - R}" y2="${y + rowH}"/>`;
+    out += `<text class="lbl" x="${L - 8}" y="${y + rowH / 2 + 4}" text-anchor="end">${esc(st.replace(" - Construction", ""))}</text>`;
+    out += `<rect class="bar ${sg.status}" x="${x(a)}" y="${y + 7}" width="${Math.max(3, x(b) - x(a))}" height="${rowH - 14}" rx="3"/>`;
+    for (const { m, r } of items) { const cx = x(parse(r.date)), cy = y + rowH / 2; const cls = r.status === "passed" ? "na" : r.status; out += `<polygon class="ms ${cls}" points="${cx},${cy - 6} ${cx + 6},${cy} ${cx},${cy + 6} ${cx - 6},${cy}"><title>${m.wbs} ${esc(m.name)}: ${fmt(r.date)} (${r.actual ? "actual" : r.override ? "forecast override" : "forecast"}; ${r.inferred ? "complete by status" : r.status})</title></polygon>`; }
+  });
+  out += `<line class="today" x1="${x(tNow)}" y1="${top - 14}" x2="${x(tNow)}" y2="${H - 10}"/><text class="tl" x="${x(tNow) + 4}" y="${H - 2}">today ${fmt(today)}</text></svg>`;
+  return `<div class="tablewrap" style="padding:12px 14px">${out}<div class="legend"><span class="owner">Bars span each stage's first to last milestone; diamonds are milestones, colored by status (teal complete, green on track, gold due soon, red late, grey no record). Hover a diamond for the date and whether it is an actual or a forecast. Switch to Table to edit dates.</span></div></div>`;
+}
+function renderReview() {
+  const el = $("#view-review");
+  const rows = [];
+  for (const c of visibleCommunities()) {
+    const calc = compute(c.dates, c.status);
+    for (const it of (c.review || [])) rows.push({ c, wbs: it.wbs || "", kind: "Flagged at load", issue: it.issue, source: it.source || "" });
+    for (const m of MS) {
+      const r = calc[m.wbs];
+      if (r.override) rows.push({ c, wbs: m.wbs, kind: "Forecast override", issue: `${m.name}: typed forecast ${fmt(r.override)} replaces the computed date. Confirm it is still the plan.`, source: "Entered in the calendar (Planner grid, Design Management update or hand entry; see the community notes)" });
+      else if (r.status === "passed") rows.push({ c, wbs: m.wbs, kind: "No record", issue: `${m.name}: a later milestone has an actual but this one has no date.`, source: "Gap in the historical sheet, Planner grid or PM Report" });
+    }
+    const inferred = MS.filter(m => calc[m.wbs].inferred).length;
+    if (inferred) rows.push({ c, wbs: "", kind: "Complete by status", issue: `${inferred} milestones are closed by the community status (${STATUS_LABEL[c.status]}) rather than by a date.`, source: "Status from Road to Stable Occupancy (9/26/2026) and the Property Operations brief (10/7/2026)" });
+    if (!calc["1.1"].anchored && !Object.keys(c.dates || {}).length) rows.push({ c, wbs: "1.1", kind: "Template only", issue: "No dates at all; every forecast is the 2026 template chain.", source: "No source yet" });
+  }
+  const order = { "Flagged at load": 0, "No record": 1, "Forecast override": 2, "Complete by status": 3, "Template only": 4 };
+  rows.sort((a, b) => a.c.name.localeCompare(b.c.name) || (order[a.kind] - order[b.kind]) || a.wbs.localeCompare(b.wbs, undefined, { numeric: true }));
+  let html = loadBanner() + filterBar();
+  html += `<div class="note"><b>Where the dates come from.</b> Acquisition and entitlement actuals: <i>ST Process Map - Historical Communities.xlsx</i> (keyed by hand from Sitetracker and deal files, Mar 2026). Land, construction and opening dates for active deals: the construction team's Planner task grids exported 10/29/2026 (<i>Pre-Construction Schedule_29Oct</i> PDFs). Vertical start, first and last delivery and amenity dates for completed communities: the PM Reports staged in BBL-DataSource (first home Start Date, first and last Hand Off / Rent Ready, amenity row). Narrative forecasts: Design Management Portfolio Update 10/28/2026. Statuses, fund and ownership: Road to Stable Occupancy, the Property Operations brief, and BBLivingDW Community_Lookup. Every community's notes name the file behind each date.</div>`;
+  if (!rows.length) { html += `<div class="tablewrap"><div class="empty"><h3>Nothing to review</h3>No flagged dates in this view.</div></div>`; el.innerHTML = html; wireFilters(el); return; }
+  const kinds = {}; for (const r of rows) kinds[r.kind] = (kinds[r.kind] || 0) + 1;
+  html += `<div class="kpis" style="grid-template-columns:repeat(5,minmax(0,1fr))">${Object.entries(order).map(([k]) => `<div class="kpi"><div class="n">${kinds[k] || 0}</div><div class="l">${k}</div></div>`).join("")}</div>`;
+  html += `<div class="tablewrap"><table><thead><tr><th>Community</th><th>Milestone</th><th>Type</th><th>What needs review</th><th>Source of the assumption</th></tr></thead><tbody>`;
+  for (const r of rows) { const m = MS.find(q => q.wbs === r.wbs); html += `<tr><td class="name"><a href="#" data-open="${esc(r.c.id)}" style="color:inherit">${esc(r.c.name)}</a><div class="owner">${esc([r.c.fund, r.c.state].filter(Boolean).join(" · "))}</div></td><td class="mono">${r.wbs ? r.wbs + " " : ""}<span class="owner">${m ? esc(m.name) : ""}</span></td><td><span class="chip ${r.kind === "Flagged at load" ? "soon" : r.kind === "No record" ? "na" : r.kind === "Forecast override" ? "ok" : "done"}">${r.kind}</span></td><td>${esc(r.issue)}</td><td class="owner">${esc(r.source)}</td></tr>`; }
   html += `</tbody></table></div>`;
   el.innerHTML = html;
   wireFilters(el);
@@ -506,10 +600,19 @@ function renderTemplate() {
   let lastStage = "";
   for (const m of MS) {
     if (m.stage !== lastStage) { lastStage = m.stage; html += `<tr class="stage"><td colspan="6">${esc(m.stage)}</td></tr>`; }
-    html += `<tr><td class="mono">${m.wbs}</td><td class="name">${esc(m.name)}</td><td class="mono">${m.pred || "—"}</td><td class="mono">${m.pred ? m.dur : "anchor"}</td><td class="owner">${esc(m.owner)}</td><td class="mono">${fmt(calc[m.wbs].date)}</td></tr>`;
+    html += `<tr><td class="mono">${m.wbs}</td><td class="name">${esc(m.name)}</td><td class="mono">${m.pred || "—"}</td><td class="mono">${m.pred ? m.dur : "anchor"}</td><td class="owner">${ownerCell(null, m)}</td><td class="mono">${fmt(calc[m.wbs].date)}</td></tr>`;
   }
   html += `</tbody></table></div>`;
+  const dis = canWrite && db ? "" : "disabled";
+  html += `<div class="tablewrap" style="padding:14px 16px"><div class="sec-h"><h3 style="margin:0 0 8px;font-size:16px">Who holds each role</h3></div><div class="owner" style="margin-bottom:10px">Company-wide person for each Level 1 owner role. A community can override any role on its own page (Team for this community). Use canonical titles from the Bamboo cleanup.</div><div class="roles">${ROLES.map(r => `<label>${esc(r)} <input data-grole="${esc(r)}" value="${esc(roles[r] || "")}" placeholder="not set" ${dis}></label>`).join("")}</div></div>`;
   el.innerHTML = html;
+  el.querySelectorAll("input[data-grole]").forEach(inp => inp.addEventListener("change", () => {
+    if (!db) return;
+    const next = Object.assign({}, roles); const v = inp.value.trim();
+    if (v) next[inp.dataset.grole] = v; else delete next[inp.dataset.grole];
+    roles = next; render();
+    saving = saving.then(() => db.collection("settings").doc("roles").set({ roles: next, updatedAt: today }, { merge: true })).then(() => toast("Roles saved")).catch(writeFailed);
+  }));
 }
 let toastTimer;
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 2200); }
@@ -523,6 +626,7 @@ render();
   if (userApi) { const w = await userApi.can("data.write"); if (w === false) canWrite = false; }
   if (!db) { loading = false; render(); return; }
   const timer = setTimeout(() => { if (loading) { loading = false; loadNote = "The shared store has not answered yet; dates shown may be incomplete."; render(); } }, 10000);
+  db.collection("settings").doc("roles").onSnapshot(d => { roles = (d.exists && d.data() && d.data().roles) || {}; render(); }, () => {});
   db.collection("communities").onSnapshot(snap => {
     communities = snap.docs.filter(d => d.exists).map(d => Object.assign({ id: d.id }, d.data()));
     if (!snap.metadata.fromCache) { clearTimeout(timer); loading = false; loadNote = ""; }
