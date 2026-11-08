@@ -295,6 +295,7 @@ function compute(dates, commStatus) {
     let base, chainAnchored;
     if (d.actual) { base = d.actual; chainAnchored = true; }
     else if (d.forecast) { base = d.forecast; chainAnchored = true; }
+    else if (d.baseline && m.stageNo <= floorStage) { base = d.baseline; chainAnchored = false; }   // closed by status, no actual: show the plan date
     else if (!m.pred) { base = TEMPLATE_ANCHOR; chainAnchored = false; }
     else {
       const p = out[m.pred];
@@ -309,7 +310,9 @@ function compute(dates, commStatus) {
     else if (base < today) status = "late";
     else if (daysBetween(today, base) <= SOON_DAYS) status = "soon";
     else status = "ok";
-    out[m.wbs] = { date: base, status, inferred, chainAnchored, actual: d.actual || "", override: d.forecast || "", anchored: !!(d.actual || d.forecast), baseline: d.baseline || "", variance: d.baseline ? daysBetween(d.baseline, base) : null };
+    // variance only where the current date means something: an actual, or an open forecast (not a milestone closed by status or passed without a date)
+    const measurable = !!d.actual || (!inferred && status !== "passed");
+    out[m.wbs] = { date: base, status, inferred, chainAnchored, actual: d.actual || "", override: d.forecast || "", anchored: !!(d.actual || d.forecast), baseline: d.baseline || "", variance: d.baseline && measurable ? daysBetween(d.baseline, base) : null };
     if (d.actual && (!latestActual || d.actual > latestActual)) latestActual = d.actual;
   }
   return out;
